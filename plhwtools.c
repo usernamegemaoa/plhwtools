@@ -25,6 +25,7 @@
 #include <assert.h>
 #include <unistd.h>
 #include <errno.h>
+#include <getopt.h>
 #include <termios.h>
 #include <signal.h>
 #include <time.h>
@@ -35,9 +36,16 @@
 #define LOG_TAG "plhw"
 #include "log.h"
 
-#define VERSION_STR "Plastic Logic Hardware Tools v0.5"
-#define COPYRIGHT_STR "Copyright (C) Plastic Logic Limited 2011, 2012"
-#define LICENSE_STR "All rights reserved."
+static const char APP_NAME[] = "plhwtools";
+static const char VERSION[] = "0.5";
+static const char DESCRIPTION[] = "Plastic Logic hardware tools";
+static const char LICENSE[] =
+	"This program is distributed in the hope that it will be useful,\n"
+	"but WITHOUT ANY WARRANTY; without even the implied warranty of\n"
+	"MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the\n"
+	"GNU General Public License for more details.\n";
+static const char COPYRIGHT[] =
+	"Copyright (C) 2011, 2012, 2013 Plastic Logic Limited";
 
 struct ctx {
 	struct cpld *cpld;
@@ -122,6 +130,9 @@ static int g_abort = 0;
 static struct termios g_original_stdin_termios;
 static enum { TERM_IN_BLANK, TERM_IN_ERROR, TERM_IN_SAVED, TERM_IN_EDITED }
 	g_stdin_termios_state = TERM_IN_BLANK;
+static const char *g_i2c_bus = PLHW_DEF_I2C_BUS;
+static unsigned g_i2c_addr = 0;
+static const char *g_opt = NULL;
 
 /* Top-level */
 static void print_help(const struct command *commands, const char *help_cmd);
@@ -221,6 +232,7 @@ int main(int argc, char **argv)
 
 #undef CMD_STRUCT
 
+	static const char *OPTIONS = "h:va:b:o:";
 	struct ctx ctx = {
 		.cpld = NULL,
 		.hvpmic = NULL,
@@ -232,6 +244,52 @@ int main(int argc, char **argv)
 
 	__sighandler_t original_sigint_handler;
 	int ret = -1;
+	int c;
+
+	while ((c = getopt(argc, argv, OPTIONS)) != -1) {
+		switch (c) {
+		case 'h':
+			print_help(commands, optarg);
+			exit(EXIT_SUCCESS);
+			break;
+
+		case 'v':
+			printf("%s v%s - %s\n%s\n%s\n", APP_NAME, VERSION,
+			       DESCRIPTION, COPYRIGHT, LICENSE);
+			exit(EXIT_SUCCESS);
+			break;
+
+		case 'a': {
+			unsigned long addr;
+
+			errno = 0;
+			addr = strtoul(optarg, NULL, 16);
+
+			if (errno) {
+				LOG("Failed to parse I2C address");
+				exit(EXIT_FAILURE);
+			}
+
+			g_i2c_addr = (unsigned) addr;
+			break;
+		}
+
+		case 'b':
+			g_i2c_bus = optarg;
+			break;
+
+		case 'o':
+			g_opt = optarg;
+			break;
+
+		case '?':
+		default:
+			LOG("Invalid arguments");
+			print_help(commands, NULL);
+			exit(EXIT_FAILURE);
+			break;
+		}
+	}
 
 	if (save_stdin_termios() < 0)
 		LOG("Warning: failed to save stdin termios");
@@ -240,24 +298,12 @@ int main(int argc, char **argv)
 
 	/* -- command line arguments -- */
 
-	if (argc > 1) {
-		if (!strcmp(argv[1], "help")) {
-			print_help(commands, (argc > 2) ? argv[2] : NULL);
-			ret = 0;
-		} else if (!strcmp(argv[1], "version")) {
-			printf(VERSION_STR"\n"
-			       COPYRIGHT_STR"\n"
-			       LICENSE_STR"\n");
-			ret = 0;
-		} else {
-			ret = run_cmd(&ctx, commands, argc, argv);
-		}
-	} else {
-		LOG("invalid arguments");
-		LOG(VERSION_STR);
+	if (optind == argc) {
 		print_help(commands, NULL);
+		exit(EXIT_SUCCESS);
 	}
 
+	ret = run_cmd(&ctx, commands, (argc - optind), &argv[optind]);
 
 	/* -- clean-up --- */
 
@@ -314,9 +360,9 @@ static void print_help(const struct command *commands, const char *help_cmd)
 static int run_cmd(struct ctx *ctx, const struct command *commands,
                    int argc, char **argv)
 {
-	const char *cmd_str = argv[1];
-	char **cmd_argv = &argv[2];
-	int cmd_argc = argc - 2;
+	const char *cmd_str = argv[0];
+	char **cmd_argv = &argv[1];
+	int cmd_argc = argc - 1;
 	const struct command *cmd;
 	int ret = -1;
 
@@ -352,7 +398,8 @@ static void sigint_abort(int signum)
 static struct cpld *require_cpld(struct ctx *ctx)
 {
 	if (ctx->cpld == NULL)
-		ctx->cpld = cpld_init(PLHW_DEF_I2C_BUS, CPLD_DEF_I2C_ADDR);
+		ctx->cpld = cpld_init(g_i2c_bus, g_i2c_addr ?
+				      g_i2c_addr : CPLD_DEF_I2C_ADDR);
 
 	return ctx->cpld;
 }
@@ -444,8 +491,8 @@ static void dump_cpld_data(const struct cpld *cpld)
 static struct hvpmic *require_hvpmic(struct ctx *ctx)
 {
 	if (ctx->hvpmic == NULL)
-		ctx->hvpmic = hvpmic_init(PLHW_DEF_I2C_BUS,
-					  HVPMIC_DEF_I2C_ADDR);
+		ctx->hvpmic = hvpmic_init(g_i2c_bus, g_i2c_addr ?
+					  g_i2c_addr : HVPMIC_DEF_I2C_ADDR);
 
 	return ctx->hvpmic;
 }
@@ -778,8 +825,8 @@ static int dump_hvpmic_temperature(struct hvpmic *hvpmic)
 static struct dac5820 *require_dac(struct ctx *ctx)
 {
 	if (ctx->dac == NULL) {
-		ctx->dac = dac5820_init(PLHW_DEF_I2C_BUS,
-					DAC5820_DEF_I2C_ADDR);
+		ctx->dac = dac5820_init(g_i2c_bus, g_i2c_addr ?
+					g_i2c_addr : DAC5820_DEF_I2C_ADDR);
 	}
 
 	return ctx->dac;
@@ -853,8 +900,8 @@ static int run_adc(struct ctx *ctx, int argc, char **argv)
 	int chan;
 
 	if (ctx->adc == NULL)
-		ctx->adc = adc11607_init(PLHW_DEF_I2C_BUS,
-					 ADC11607_DEF_I2C_ADDR);
+		ctx->adc = adc11607_init(g_i2c_bus, g_i2c_addr ?
+					 g_i2c_addr : ADC11607_DEF_I2C_ADDR);
 
 	if (ctx->adc == NULL)
 		return -1;
@@ -954,7 +1001,8 @@ static int run_pbtn(struct ctx *ctx, int argc, char **argv)
 	int ret = 0;
 
 	if (ctx->pbtn == NULL)
-		ctx->pbtn = pbtn_init(PLHW_DEF_I2C_BUS, PBTN_DEF_I2C_ADDR);
+		ctx->pbtn = pbtn_init(g_i2c_bus, g_i2c_addr ?
+				      g_i2c_addr : PBTN_DEF_I2C_ADDR);
 
 	if (ctx->pbtn == NULL)
 		return -1;
@@ -1023,8 +1071,8 @@ static int run_eeprom(struct ctx *ctx, int argc, char **argv)
 	int ret;
 
 	if (ctx->eeprom == NULL)
-		ctx->eeprom = eeprom_init(PLHW_DEF_I2C_BUS,
-					  EEPROM_DEF_I2C_ADDR);
+		ctx->eeprom = eeprom_init(g_i2c_bus, g_i2c_addr ?
+					  g_i2c_addr : EEPROM_DEF_I2C_ADDR);
 
 	if (ctx->eeprom == NULL)
 		return -1;
@@ -1035,6 +1083,21 @@ static int run_eeprom(struct ctx *ctx, int argc, char **argv)
 	}
 
 	eeprom = ctx->eeprom;
+
+	if (g_opt != NULL) {
+		unsigned long block_size;
+
+		errno = 0;
+		block_size = strtoul(g_opt, NULL, 10);
+
+		if (errno) {
+			LOG("Failed to parse block size");
+			return -1;
+		}
+
+		eeprom_set_block_size(eeprom, block_size);
+	}
+
 	cmd_str = argv[0];
 
 	if (!strcmp(cmd_str, "full_rw")) {
@@ -1112,6 +1175,7 @@ static int full_rw_eeprom(struct eeprom *eeprom)
 	int ret = 0;
 
 	LOG("EEPROM size: %zu", size);
+	LOG("I2C block size: %zu", eeprom_get_block_size(eeprom));
 
 	if ((data_w == NULL) || (data_r == NULL)) {
 		if (data_r == NULL)

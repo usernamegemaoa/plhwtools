@@ -71,61 +71,6 @@ struct switch_id {
 #define DAC_ON DAC5820_POW_ON
 #define DAC_OFF DAC5820_POW_OFF_100K
 
-static const char *help_cpld =
-"  When called with no arguments, the CPLD firmware version and board id\n"
-"  are displayed.\n"
-"  All the following switches accept an optional extra argument to set their\n"
-"  state to `on' or `off'.  If no extra argument is provided, then their\n"
-"  current state is reported.\n"
-"  Switches:\n"
-"    hv:          HV enable\n"
-"    gate:        gate drivers VDD enable\n"
-"    vcom_close:  VCOM switch close (`off' to open, `on' to close)\n"
-"    vcom_psu:    VCOM power supply enable\n"
-"    bpcom_clamp: BPCOM clamp enable\n"
-"  Actions:\n"
-"    version:     Get the CPLD version number (plain decimal on stdout)\n";
-static const char *help_hvpmic =
-"  With no arguments, all the HV PMIC status information is dumped.\n"
-"  To set a timing value:\n"
-"    timing TIMING_NUMBER TIMING_VALUE_MS\n"
-"  To set the VCOM register value:\n"
-"    vcom VCOM_REGISTER_VALUE\n"
-"  To switch on/off the HV power supplies (en, cen, cen2):\n"
-"    [en, cen, cen2] [on, off]\n";
-static const char *help_dac =
-"  First argument: either A or B to select the channel.\n"
-"  Second argument:\n"
-"    on: turn the power on\n"
-"    off: turn the power off and let the output floating\n"
-"    off1k: turn the power off and pull the output to GND with 1K\n"
-"    off100k: turn the power off and pull the output to GND with 100K\n"
-"    value between 0 and 255: set the output of the given channel\n";
-static const char *help_adc =
-"  With no arguments, the default reference voltage is used and all channels\n"
-"  are converted to volts and displayed.  When a reference voltage is\n"
-"  specified but no channel is selected, then all the channels are shown.\n"
-"  When a channel is selected, then a plain floating point voltage is\n"
-"  generated on stdout\n"
-"  First optional argument: reference voltage\n"
-"  . internal: use the internal reference voltage (default)\n"
-"  . external: use the external reference voltage\n"
-"  . vdd: use VDD as reference voltage\n"
-"  Second optional argument: channel\n"
-"  . channel number starting from 0: select that channel\n"
-"  . vcom: read the VCOM value on its dedicated channel\n";
-static const char *help_pbtn =
-"  No arguments, just a small procedure to manually test the buttons\n";
-static const char *help_eeprom =
-"  Supported commands:\n"
-"    full_rw: fill the eeprom with random data, read it back and compare\n"
-"    e2f FILE_NAME: dump EEPROM contents to a file, or stdout by default\n"
-"    f2e FILE_NAME: dump file contents or stdin by default to EEPROM\n";
-static const char *help_power =
-"  Supported commands:\n"
-"  on [vcom]: turn the power on, with optional HVPMIC VCOM value (0-255)\n"
-"  off: turn the power off\n";
-
 static int g_abort = 0;
 static struct termios g_original_stdin_termios;
 static enum { TERM_IN_BLANK, TERM_IN_ERROR, TERM_IN_SAVED, TERM_IN_EDITED }
@@ -137,15 +82,18 @@ static const char *g_opt = NULL;
 /* Top-level */
 static void print_help(const struct command *commands, const char *help_cmd);
 static int run_cmd(struct ctx *ctx, const struct command *commands,
+
                    int argc, char **argv);
 static void sigint_abort(int signum);
 
 /* CPLD */
+static const char help_cpld[];
 static struct cpld *require_cpld(struct ctx *ctx);
 static int run_cpld(struct ctx *ctx, int argc, char **argv);
 static void dump_cpld_data(const struct cpld *cpld);
 
 /* HVPMIC */
+static const char help_hvpmic[];
 static struct hvpmic *require_hvpmic(struct ctx *ctx);
 static int run_hvpmic(struct ctx *ctx, int argc, char **argv);
 static int set_hvpmic_timing(struct hvpmic *hvpmic, int argc, char **argv);
@@ -163,28 +111,34 @@ static const char HVPMIC_TIMINGS_SEQ0[HVPMIC_NB_TIMINGS] = {
 };
 
 /* DAC */
+static const char help_dac[];
 static struct dac5820 *require_dac(struct ctx *ctx);
 static int run_dac(struct ctx *ctx, int argc, char **argv);
 
 /* ADC */
+static const char help_adc[];
 static int run_adc(struct ctx *ctx, int argc, char **argv);
 
 /* GPIO (push buttons) */
+static const char help_pbtn[];
 static int run_pbtn(struct ctx *ctx, int argc, char **argv);
 static int pbtn_abort_cb(void);
 
 /* EEPROM */
+static const char help_eeprom[];
 static int run_eeprom(struct ctx *ctx, int argc, char **argv);
 static int full_rw_eeprom(struct eeprom *eeprom);
 static int rw_file_eeprom(struct eeprom *eeprom, int fd, int write_file);
 static void log_eeprom_progress(size_t total, size_t rem, const char *msg);
 
 /* Power */
+static const char help_eeprom[];
 static int run_power(struct ctx *ctx, int argc, char **argv);
 static int power_on_seq0(struct ctx *ctx, char vcom);
 static int power_off_seq0(struct ctx *ctx);
 
 /* Utilities */
+static const char help_power[];
 static int switch_on_off(const struct switch_id *switches, void *ctx,
 			 const char *sw_name, const char *on_off,
 			 int (*get_sw) (void *ctx, int sw_id),
@@ -232,7 +186,7 @@ int main(int argc, char **argv)
 
 #undef CMD_STRUCT
 
-	static const char *OPTIONS = "h:va:b:o:";
+	static const char *OPTIONS = "h::va:b:o:";
 	struct ctx ctx = {
 		.cpld = NULL,
 		.hvpmic = NULL,
@@ -347,14 +301,42 @@ static void print_help(const struct command *commands, const char *help_cmd)
 	}
 
 	printf(
-"Basic commands:\n"
-"  help: show this help message\n"
-"  help CMD: show the help specific to the given command CMD\n"
-"  version: show the plhwtools version\n"
-);
+"Usage: %s <OPTIONS> <COMMAND_NAME> <COMMAND_ARGUMENTS>\n"
+"\n"
+"COMMAND_NAME:\n"
+"    The following commands can be used (arguments are detailed separately):\n"
+"\n"
+"    cpld       Control Plasstic Logic CPLD over I2C register interface\n"
+"    hvpmic     Control MAX17135 HV PMIC (timings, switches)\n"
+"    dac        Control DAC power and register value\n"
+"    adc        Read ADC values\n"
+"    pbtn       Push button test procedure using I2C GPIO expander\n"
+"    eeprom     Read/write/test display EEPROM\n"
+"    power      Run full power on/off sequence using multiple devices\n"
+"\n"
+"OPTIONS:\n"
+"  -h [COMMAND]\n"
+"    Show this help message and exit.  If COMMAND is provided, only show the\n"
+"    help message for the given command.\n"
+"\n"
+"  -v\n"
+"    Show the version, copyright and license information and exit.\n"
+"\n"
+"  -b I2C_BUS_DEVICE\n"
+"    Specify the I2C bus device to be used, typically /dev/i2c-X where X is\n"
+"    the I2C bus number.\n"
+"\n"
+"  -a I2C_ADDRESS\n"
+"    Specify the I2C address of the device to be used with the command.\n"
+"    This only applies to commands that use a single I2C device.\n"
+"\n"
+"  -o COMMAND_OPTIONS\n"
+"    Optional argument string which can be used by the command.  Please see\n"
+"    each command help for more details.\n"
+"\n", APP_NAME);
 
 	for (cmd = commands; cmd->cmd != NULL; ++cmd)
-		printf("Command: %s\n%s", cmd->cmd, cmd->help);
+		printf("Command: %s\n%s\n", cmd->cmd, cmd->help);
 }
 
 static int run_cmd(struct ctx *ctx, const struct command *commands,
@@ -1573,3 +1555,77 @@ static void dump_hex_data(const char *data, size_t size)
 		remaining -= length;
 	}
 }
+
+/* ----------------------------------------------------------------------------
+ * Help strings
+ */
+
+static const char help_cpld[] =
+"  When called with no arguments, the CPLD firmware version and board id\n"
+"  are displayed.\n"
+"  All the following switches accept an optional extra argument to set their\n"
+"  state to `on' or `off'.  If no extra argument is provided, then their\n"
+"  current state is reported.\n"
+"  Switches:\n"
+"    hv:           HV enable\n"
+"    gate:         gate drivers VDD enable\n"
+"    vcom_close:   VCOM switch close (`off' to open, `on' to close)\n"
+"    vcom_psu:     VCOM power supply enable\n"
+"    bpcom_clamp:  BPCOM clamp enable\n"
+"  Other:\n"
+"    version:      Get the CPLD version number (plain decimal on stdout)\n";
+
+static const char help_hvpmic[] =
+"  With no arguments, all the HV PMIC status information is dumped.\n"
+"  To set a timing value:\n"
+"    timing TIMING_NUMBER TIMING_VALUE_MS\n"
+"  To set the VCOM register value:\n"
+"    vcom VCOM_REGISTER_VALUE\n"
+"  To switch on/off the HV power supplies (en, cen, cen2):\n"
+"    [en, cen, cen2] [on, off]\n";
+
+static const char help_dac[] =
+"  First argument: either A or B to select the channel.\n"
+"  Second argument:\n"
+"    on:       turn the power on\n"
+"    off:      turn the power off and let the output floating\n"
+"    off1k:    turn the power off and pull the output to GND with 1K\n"
+"    off100k:  turn the power off and pull the output to GND with 100K\n"
+"    value between 0 and 255: set the output of the given channel\n";
+
+static const char help_adc[] =
+"  With no arguments, the default reference voltage is used and all channels\n"
+"  are converted to volts and displayed.  When a reference voltage is\n"
+"  specified but no channel is selected, then all the channels are shown.\n"
+"  When a channel is selected, then a plain floating point voltage is\n"
+"  generated on stdout\n"
+"  First optional argument: reference voltage\n"
+"    internal:  use the internal reference voltage (default)\n"
+"    external:  use the external reference voltage\n"
+"    vdd:       use VDD as reference voltage\n"
+"  Second optional argument: channel\n"
+"    channel number starting from 0: select that channel\n"
+"    vcom: read the VCOM value on its dedicated channel\n";
+
+static const char help_pbtn[] =
+"  No arguments, just a small procedure to manually test the buttons\n";
+
+static const char help_eeprom[] =
+"  Supported arguments:\n"
+"    full_rw:        write random data, read it back and compare\n"
+"    e2f FILE_NAME:  dump EEPROM contents to a file, or stdout by default\n"
+"    f2e FILE_NAME:  dump file contents or stdin by default to EEPROM\n"
+"  Options: -o I2C_BLOCK_SIZE\n"
+"    The maximum I2C block transfer size in bytes can be passed as an\n"
+"    option.  The default is 96, but it can be increased to 512 for example\n"
+"    to speed-up the operation if the platform I2C driver supportes it.  It\n"
+"    can also be useful to reduce the block size in case the platform I2C\n"
+"    driver supports only smaller packets.\n";
+
+static const char help_power[] =
+"  Supported arguments:\n"
+"    on [seq] [vcom]\n"
+"      turn the power on, with optional sequence name (seq0 by default) and\n"
+"      optional HVPMIC VCOM value (0-255)\n"
+"    off [seq]\n"
+"      turn the power off\n";

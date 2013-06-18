@@ -1,0 +1,9 @@
+Release v0.5 -> v0.6 - 2013-06-18
+
+Guillaume Tucker (5):
+      initial commit: import from plhwtools v0.5
+      add GPL v3 license + update copyright statements
+      Android.mk: list all source files to fix Android NDK build
+      use getopt + add I2C block size for EEPROM transfers
+      update help message
+

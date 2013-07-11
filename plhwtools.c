@@ -609,7 +609,7 @@ static int set_hvpmic_timings(struct hvpmic *hvpmic, int argc, char **argv)
 				n_timings = argc;
 			}
 
-			for (i = n_timings; i < n_timings; ++i) {
+			for (i = 0; i < n_timings; ++i) {
 				int t = atoi(argv[i]);
 
 				if ((t < 0) || (t > 255)) {

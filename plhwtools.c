@@ -19,7 +19,6 @@
   along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "libplhw.h"
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <assert.h>
@@ -32,6 +31,9 @@
 #include <stdlib.h>
 #include <fcntl.h>
 #include <string.h>
+
+#include <libplepaper.h>
+#include "libplhw.h"
 
 #define LOG_TAG "plhw"
 #include "log.h"
@@ -54,6 +56,7 @@ struct ctx {
 	struct adc11607 *adc;
 	struct eeprom *eeprom;
 	struct pbtn *pbtn;
+	struct plep *plep;
 };
 
 struct command {
@@ -137,6 +140,11 @@ static int run_power(struct ctx *ctx, int argc, char **argv);
 static int power_on_seq0(struct ctx *ctx, char vcom);
 static int power_off_seq0(struct ctx *ctx);
 
+/* ePDC */
+static const char help_epdc[];
+static struct plep *require_epdc(struct ctx *ctx);
+static int run_epdc(struct ctx *ctx, int argc, char **argv);
+
 /* Utilities */
 static const char help_power[];
 static int switch_on_off(const struct switch_id *switches, void *ctx,
@@ -181,6 +189,7 @@ int main(int argc, char **argv)
 		CMD_STRUCT(pbtn),
 		CMD_STRUCT(eeprom),
 		CMD_STRUCT(power),
+		CMD_STRUCT(epdc),
 		{ .cmd = NULL, .help = NULL, .run = NULL }
 	};
 
@@ -278,6 +287,9 @@ int main(int argc, char **argv)
 
 	if (ctx.pbtn != NULL)
 		pbtn_free(ctx.pbtn);
+
+	if (ctx.plep != NULL)
+		plep_free(ctx.plep);
 
 	if (restore_stdin_termios() < 0)
 		LOG("Warning: failed to restore stdin termios");
@@ -1421,6 +1433,77 @@ static const struct power_seq *get_power_seq(int argc, char **argv)
 }
 
 /* ----------------------------------------------------------------------------
+ * ePDC
+ */
+
+static struct plep *require_epdc(struct ctx *ctx)
+{
+	if (ctx->plep == NULL)
+		ctx->plep = plep_init(NULL, NULL); /* ToDo: parse options */
+
+	return ctx->plep;
+}
+
+static int epdc_get_set_hw_opt(struct ctx *ctx, int argc, char **argv)
+{
+	static const char *opt_list[_PLEP_HW_OPT_N_] = {
+		[PLEP_POWER_OFF_DELAY_MS] = "power_off_delay_ms",
+		[PLEP_CLEAR_ON_EXIT] = "clear_on_exit",
+	};
+	const char *opt_str = argv[0];
+	int opt;
+	int value;
+
+	for (opt = 0; opt < _PLEP_HW_OPT_N_; ++opt) {
+		if (!strcmp(opt_list[opt], opt_str))
+			break;
+	}
+
+	if (opt == _PLEP_HW_OPT_N_) {
+		LOG("Invalid hardware option identifier: %s", opt_str);
+		return -1;
+	}
+
+	if (argc == 1) {
+		if (plep_get_hw_opt(ctx->plep, opt, &value))
+			return -1;
+	} else {
+		value = atoi(argv[1]);
+
+		if (plep_set_hw_opt(ctx->plep, opt, value))
+			return -1;
+	}
+
+	return 0;
+}
+
+static int run_epdc(struct ctx *ctx, int argc, char **argv)
+{
+	struct plep *plep = require_epdc(ctx);
+	const char *cmd;
+	int stat;
+
+	if (plep == NULL)
+		return -1;
+
+	if (argc < 2) {
+		LOG("Invalid arguments");
+		return -1;
+	}
+
+	cmd = argv[0];
+
+	if (!strcmp(cmd, "opt")) {
+		stat = epdc_get_set_hw_opt(ctx, (argc - 1), &argv[1]);
+	} else {
+		LOG("Unsupported command");
+		stat = -1;
+	}
+
+	return stat;
+}
+
+/* ----------------------------------------------------------------------------
  * Utilities
  */
 
@@ -1629,3 +1712,14 @@ static const char help_power[] =
 "      optional HVPMIC VCOM value (0-255)\n"
 "    off [seq]\n"
 "      turn the power off\n";
+
+static const char help_epdc[] =
+"  This command is used to access the low-level interface to electrophoretic\n"
+"  display controllers (ePDC) via the PLSDK libplepaper library.\n"
+"  Supported arguments:\n"
+"    opt OPT [VALUE]: Set a hardware option OPT to the given numerical\n"
+"                     VALUE or print its current value if none.  Supported\n"
+"                     option identifiers for OPT are:\n"
+"      power_off_delay_ms: delay in milliseconds between end of display\n"
+"                          update and display HV power off\n"
+"      clear_on_exit:      clear the screen when the ePDC is shut down\n";

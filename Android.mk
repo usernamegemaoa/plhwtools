@@ -5,6 +5,8 @@ LOCAL_MODULE := plhwtools
 LOCAL_MODULE_TAGS := eng
 LOCAL_CFLAGS += -Wall -O2
 LOCAL_SRC_FILES := plhwtools.c
-LOCAL_C_INCLUDES += $(LOCAL_PATH)/../libplhw
-LOCAL_STATIC_LIBRARIES := libplhw
+LOCAL_C_INCLUDES += \
+	$(LOCAL_PATH)/../libplhw \
+	$(LOCAL_PATH)/../libplepaper
+LOCAL_STATIC_LIBRARIES := libplhw libplepaper
 include $(BUILD_EXECUTABLE)

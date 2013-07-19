@@ -1,3 +1,13 @@
+Release v0.6 -> v1.0 - 2013-07-19
+
+Guillaume Tucker (6):
+      hvpmic: fix function to set timings
+      Makefile: link agains libplsdk.so
+      add epdc command to set low-level ePDC hardware options
+      Android.mk: add dependency to libplepaper
+      fix typo to match latest libplhw library
+      add setver.sh script to set the application version string
+
 Release v0.5 -> v0.6 - 2013-06-18
 
 Guillaume Tucker (5):

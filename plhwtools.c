@@ -33,7 +33,7 @@
 #include <string.h>
 
 #include <libplepaper.h>
-#include "libplhw.h"
+#include <libplhw.h>
 
 #define LOG_TAG "plhw"
 #include "log.h"
@@ -128,10 +128,18 @@ static int run_pbtn(struct ctx *ctx, int argc, char **argv);
 static int pbtn_abort_cb(void);
 
 /* EEPROM */
+struct eeprom_opt {
+	size_t data_size;
+	int zero_padding;
+};
 static const char help_eeprom[];
 static int run_eeprom(struct ctx *ctx, int argc, char **argv);
-static int full_rw_eeprom(struct eeprom *eeprom);
-static int rw_file_eeprom(struct eeprom *eeprom, int fd, int write_file);
+static int full_rw_eeprom(struct eeprom *eeprom, const struct eeprom_opt *opt);
+static int pad_eeprom(struct eeprom *eeprom, size_t left,
+		      const struct eeprom_opt *opt);
+static int rw_file_eeprom(struct eeprom *eeprom, int fd, int write_file,
+			  const struct eeprom_opt *opt);
+static int parse_eeprom_opt(struct eeprom *eeprom, struct eeprom_opt *eopt);
 static void log_eeprom_progress(size_t total, size_t rem, const char *msg);
 
 /* Power */
@@ -1058,6 +1066,7 @@ static int pbtn_abort_cb(void)
 static int run_eeprom(struct ctx *ctx, int argc, char **argv)
 {
 	struct eeprom *eeprom;
+	struct eeprom_opt eeprom_opt;
 	const char *eeprom_mode;
 	const char *cmd_str;
 	int fd;
@@ -1084,19 +1093,12 @@ static int run_eeprom(struct ctx *ctx, int argc, char **argv)
 
 	eeprom = ctx->eeprom;
 
-	if (g_opt != NULL) {
-		unsigned long block_size;
+	eeprom_opt.data_size = eeprom_get_size(eeprom);
+	eeprom_opt.zero_padding = 0;
 
-		errno = 0;
-		block_size = strtoul(g_opt, NULL, 10);
-
-		if (errno) {
-			LOG("Failed to parse block size");
+	if (g_opt != NULL)
+		if (parse_eeprom_opt(ctx->eeprom, &eeprom_opt))
 			return -1;
-		}
-
-		eeprom_set_block_size(eeprom, block_size);
-	}
 
 	if (!strcmp(cmd_str, "full_rw")) {
 		char c;
@@ -1114,7 +1116,7 @@ static int run_eeprom(struct ctx *ctx, int argc, char **argv)
 			LOG("Warning: failed to restore input buffering");
 
 		if (c == 'y') {
-			return full_rw_eeprom(eeprom);
+			return full_rw_eeprom(eeprom, &eeprom_opt);
 		} else {
 			fprintf(LOG_FILE, "aborted\n");
 			return -1;
@@ -1147,7 +1149,7 @@ static int run_eeprom(struct ctx *ctx, int argc, char **argv)
 		}
 	}
 
-	ret = rw_file_eeprom(eeprom, fd, write_file);
+	ret = rw_file_eeprom(eeprom, fd, write_file, &eeprom_opt);
 
 	if (f_name != NULL) {
 		if (write_file) {
@@ -1162,12 +1164,11 @@ static int run_eeprom(struct ctx *ctx, int argc, char **argv)
 	return ret;
 }
 
-static int full_rw_eeprom(struct eeprom *eeprom)
+static int full_rw_eeprom(struct eeprom *eeprom, const struct eeprom_opt *opt)
 {
-	const size_t size = eeprom_get_size(eeprom);
-	const size_t dump_size = min(256, size);
-	char *data_w = malloc(size);
-	char *data_r = malloc(size);
+	const size_t dump_size = min(256, opt->data_size);
+	char *data_w = malloc(opt->data_size);
+	char *data_r = malloc(opt->data_size);
 	char *it_r;
 	char *it_w;
 	unsigned i;
@@ -1191,10 +1192,10 @@ static int full_rw_eeprom(struct eeprom *eeprom)
 
 	srand(time(0));
 
-	for (i = 0, it_w = data_w; i < size; ++i)
+	for (i = 0, it_w = data_w; i < opt->data_size; ++i)
 		*it_w++ = (rand() & 0xFF);
 
-	memset(data_r, 0, size);
+	memset(data_r, 0, opt->data_size);
 
 	LOG("beginning of the data to be written:");
 	dump_hex_data(data_w, dump_size);
@@ -1203,7 +1204,7 @@ static int full_rw_eeprom(struct eeprom *eeprom)
 
 	eeprom_seek(eeprom, 0);
 
-	if (eeprom_write(eeprom, data_w, size) < 0) {
+	if (eeprom_write(eeprom, data_w, opt->data_size) < 0) {
 		LOG("failed to write data");
 		ret = -1;
 	}
@@ -1212,7 +1213,7 @@ static int full_rw_eeprom(struct eeprom *eeprom)
 
 	eeprom_seek(eeprom, 0);
 
-	if (eeprom_read(eeprom, data_r, size) < 0) {
+	if (eeprom_read(eeprom, data_r, opt->data_size) < 0) {
 		LOG("failed to read data");
 		ret = -1;
 	}
@@ -1222,7 +1223,7 @@ static int full_rw_eeprom(struct eeprom *eeprom)
 
 	LOG("comparing results ...");
 
-	for (i = 0, it_r = data_r, it_w = data_w; i < size; ++i) {
+	for (i = 0, it_r = data_r, it_w = data_w; i < opt->data_size; ++i) {
 		if (*it_r++ != *it_w++) {
 			const int addr = (i > 128) ? (i - 128) : 0;
 
@@ -1246,14 +1247,38 @@ static int full_rw_eeprom(struct eeprom *eeprom)
 	return ret;
 }
 
-static int rw_file_eeprom(struct eeprom *eeprom, int fd, int write_file)
+static int pad_eeprom(struct eeprom *eeprom, size_t left,
+		      const struct eeprom_opt *opt)
+{
+	static const size_t N_ZEROS = 64;
+	char zeros[N_ZEROS];
+
+	memset(zeros, 0, N_ZEROS);
+
+	while (left) {
+		size_t n = min(N_ZEROS, left);
+
+		log_eeprom_progress(opt->data_size, (left - n), "Padding");
+
+		if (eeprom_write(eeprom, zeros, n) < 0)
+			return -1;
+
+		left -= n;
+	}
+
+	return 0;
+}
+
+static int rw_file_eeprom(struct eeprom *eeprom, int fd, int write_file,
+			  const struct eeprom_opt *opt)
 {
 	static const size_t buffer_size = 4096;
 	const char *msg = write_file ? "Reading" : "Writing";
 	char *buffer = malloc(buffer_size);
-	const size_t esize = eeprom_get_size(eeprom);
-	size_t left = esize;
+	size_t left;
 	int ret;
+
+	left = opt->data_size;
 
 	if (buffer == NULL) {
 		LOG("failed to allocate buffer");
@@ -1268,7 +1293,7 @@ static int rw_file_eeprom(struct eeprom *eeprom, int fd, int write_file)
 			(left > buffer_size) ? buffer_size : left;
 
 		if (write_file) {
-			log_eeprom_progress(esize, left - rwsz, msg);
+			log_eeprom_progress(opt->data_size, left - rwsz, msg);
 
 			if (eeprom_read(eeprom, buffer, rwsz) < 0)
 				ret = -1;
@@ -1280,21 +1305,136 @@ static int rw_file_eeprom(struct eeprom *eeprom, int fd, int write_file)
 			const ssize_t rdsz = read(fd, buffer, rwsz);
 
 			if (rdsz >= 0)
-				log_eeprom_progress(esize, left - rdsz, msg);
+				log_eeprom_progress(opt->data_size,
+						    (left - rdsz), msg);
 
-			if (rdsz < 0)
+			if (rdsz < 0) {
 				ret = -1;
-			else if (eeprom_write(eeprom, buffer, rdsz) < 0)
+			} else if (eeprom_write(eeprom, buffer, rdsz) < 0) {
 				ret = -1;
-			else if ((size_t) rdsz == rwsz)
+			} else if ((size_t) rdsz == rwsz) {
 				left -= rwsz;
-			else
+			} else {
+				if (opt->zero_padding) {
+					fprintf(LOG_FILE, "\n");
+					left -= rdsz;
+					ret = pad_eeprom(eeprom, left, opt);
+				}
+
 				left = 0;
+			}
 		}
 	}
 
 	fprintf(LOG_FILE, "\n");
 	free(buffer);
+
+	return ret;
+}
+
+static int parse_eeprom_opt(struct eeprom *eeprom, struct eeprom_opt *eopt)
+{
+	const size_t opt_size = strlen(g_opt) + 1;
+	static const char *sep = ", ";
+	char *opt_str;
+	char *opt;
+	int ret = 0;
+
+	opt_str = malloc(opt_size);
+	assert(opt_str != NULL);
+	memcpy(opt_str, g_opt, opt_size);
+
+	while ((opt = strsep(&opt_str, sep)) != NULL) {
+		static const char *opt_sep="=";
+		char *key;
+		char *str_value;
+		unsigned long ul_value;
+
+		key = strsep(&opt, opt_sep);
+
+		if (key == NULL) {
+			LOG("invalid EEPROM option");
+			return -1;
+		}
+
+		str_value = strsep(&opt, opt_sep);
+
+		if (!strcmp(key, "i2c_block_size")) {
+			if (str_value == NULL) {
+				LOG("no I2C block size specified");
+				ret = -1;
+				goto exit_now;
+			}
+
+			errno = 0;
+			ul_value = strtoul(str_value, NULL, 10);
+
+			if (errno) {
+				LOG("failed to parse I2C block size");
+				ret = -1;
+				goto exit_now;
+			}
+
+			LOG("I2C block size: %lu", ul_value);
+			eeprom_set_block_size(eeprom, ul_value);
+		} else if (!strcmp(key, "page_size")) {
+			if (str_value == NULL) {
+				LOG("no EEPROM page size specified");
+				ret = -1;
+				goto exit_now;
+			}
+
+			errno = 0;
+			ul_value = strtoul(str_value, NULL, 10);
+
+			if (errno) {
+				LOG("failed to parse EEPROM page size");
+				ret = -1;
+				goto exit_now;
+			}
+
+			LOG("EEPROM page size: %lu", ul_value);
+			eeprom_set_page_size(eeprom, ul_value);
+		} else if (!strcmp(key, "zero_padding")) {
+			LOG("zero-padding enabled");
+			eopt->zero_padding = 1;
+		} else if (!strcmp(key, "data_size")) {
+			size_t esize;
+
+			if (str_value == NULL) {
+				LOG("no data size specified");
+				ret = -1;
+				goto exit_now;
+			}
+
+			errno = 0;
+			ul_value = strtoul(str_value, NULL, 10);
+
+			if (errno) {
+				LOG("failed to parse data size");
+				ret = -1;
+				goto exit_now;
+			}
+
+			esize = eeprom_get_size(eeprom);
+
+			if (ul_value > esize) {
+				LOG("data size bigger than EEPROM size");
+				ret = -1;
+				goto exit_now;
+			}
+
+			LOG("data size: %lu", ul_value);
+			eopt->data_size = ul_value;
+		} else {
+			LOG("invalid option name: %s", key);
+			ret = -1;
+			goto exit_now;
+		}
+	}
+
+exit_now:
+	free(opt_str);
 
 	return ret;
 }

@@ -1058,23 +1058,29 @@ static int pbtn_abort_cb(void)
 static int run_eeprom(struct ctx *ctx, int argc, char **argv)
 {
 	struct eeprom *eeprom;
+	const char *eeprom_mode;
 	const char *cmd_str;
 	int fd;
 	const char *f_name;
 	int write_file;
 	int ret;
 
-	if (ctx->eeprom == NULL)
-		ctx->eeprom = eeprom_init(g_i2c_bus, g_i2c_addr ?
-					  g_i2c_addr : EEPROM_DEF_I2C_ADDR);
-
-	if (ctx->eeprom == NULL)
-		return -1;
-
-	if (argc < 1) {
+	if (argc < 2) {
 		LOG("invalid arguments");
 		return -1;
 	}
+
+	eeprom_mode = argv[0];
+	cmd_str = argv[1];
+
+	if (ctx->eeprom == NULL) {
+		ctx->eeprom = eeprom_init(g_i2c_bus, g_i2c_addr ?
+					  g_i2c_addr : EEPROM_DEF_I2C_ADDR,
+					  eeprom_mode);
+	}
+
+	if (ctx->eeprom == NULL)
+		return -1;
 
 	eeprom = ctx->eeprom;
 
@@ -1091,8 +1097,6 @@ static int run_eeprom(struct ctx *ctx, int argc, char **argv)
 
 		eeprom_set_block_size(eeprom, block_size);
 	}
-
-	cmd_str = argv[0];
 
 	if (!strcmp(cmd_str, "full_rw")) {
 		char c;
@@ -1126,7 +1130,7 @@ static int run_eeprom(struct ctx *ctx, int argc, char **argv)
 		return -1;
 	}
 
-	if (argc < 2) {
+	if (argc < 3) {
 		fd = write_file ? STDOUT_FILENO : STDIN_FILENO;
 		f_name = NULL;
 	} else {
@@ -1134,7 +1138,7 @@ static int run_eeprom(struct ctx *ctx, int argc, char **argv)
 		static const int read_flags = (O_RDONLY);
 		const int flags = write_file ? write_flags : read_flags;
 
-		f_name = argv[1];
+		f_name = argv[2];
 		fd = open(f_name, flags);
 
 		if (fd < 0) {
@@ -1161,15 +1165,13 @@ static int run_eeprom(struct ctx *ctx, int argc, char **argv)
 static int full_rw_eeprom(struct eeprom *eeprom)
 {
 	const size_t size = eeprom_get_size(eeprom);
+	const size_t dump_size = min(256, size);
 	char *data_w = malloc(size);
 	char *data_r = malloc(size);
 	char *it_r;
 	char *it_w;
 	unsigned i;
 	int ret = 0;
-
-	LOG("EEPROM size: %zu", size);
-	LOG("I2C block size: %zu", eeprom_get_block_size(eeprom));
 
 	if ((data_w == NULL) || (data_r == NULL)) {
 		if (data_r == NULL)
@@ -1195,7 +1197,7 @@ static int full_rw_eeprom(struct eeprom *eeprom)
 	memset(data_r, 0, size);
 
 	LOG("beginning of the data to be written:");
-	dump_hex_data(data_w, 256);
+	dump_hex_data(data_w, dump_size);
 
 	LOG("writing to EEPROM ...");
 
@@ -1216,7 +1218,7 @@ static int full_rw_eeprom(struct eeprom *eeprom)
 	}
 
 	LOG("beginning of the data read back:");
-	dump_hex_data(data_r, 256);
+	dump_hex_data(data_r, dump_size);
 
 	LOG("comparing results ...");
 
@@ -1227,9 +1229,9 @@ static int full_rw_eeprom(struct eeprom *eeprom)
 			LOG("error found at address 0x%04X", i);
 			LOG("dump start at 0x%04X", addr);
 			LOG("written:");
-			dump_hex_data(&data_w[addr], 256);
+			dump_hex_data(&data_w[addr], dump_size);
 			LOG("read:");
-			dump_hex_data(&data_r[addr], 256);
+			dump_hex_data(&data_r[addr], dump_size);
 			ret = -1;
 			break;
 		}

@@ -1449,6 +1449,8 @@ static int epdc_get_set_hw_opt(struct ctx *ctx, int argc, char **argv)
 	static const char *opt_list[_PLEP_HW_OPT_N_] = {
 		[PLEP_POWER_OFF_DELAY_MS] = "power_off_delay_ms",
 		[PLEP_CLEAR_ON_EXIT] = "clear_on_exit",
+		[PLEP_TEMPERATURE] = "temperature",
+		[PLEP_TEMP_MODE] = "temperature_mode",
 	};
 	const char *opt_str = argv[0];
 	int opt;
@@ -1466,12 +1468,20 @@ static int epdc_get_set_hw_opt(struct ctx *ctx, int argc, char **argv)
 
 	if (argc == 1) {
 		if (plep_get_hw_opt(ctx->plep, opt, &value))
+		{
+			LOG("Error getting ePDC opt %s!\n", opt_str);
 			return -1;
+		}
+		LOG("ePDC opt %s: %d\n", opt_str, value);
 	} else {
 		value = atoi(argv[1]);
 
 		if (plep_set_hw_opt(ctx->plep, opt, value))
+		{
+			LOG("Error setting ePDC opt %s!\n", opt_str);
 			return -1;
+		}
+		LOG("ePDC opt %s set to: %d\n", opt_str, value);
 	}
 
 	return 0;
@@ -1722,4 +1732,7 @@ static const char help_epdc[] =
 "                     option identifiers for OPT are:\n"
 "      power_off_delay_ms: delay in milliseconds between end of display\n"
 "                          update and display HV power off\n"
-"      clear_on_exit:      clear the screen when the ePDC is shut down\n";
+"      clear_on_exit:      clear the screen when the ePDC is shut down\n"
+"      temperature:        temperature in celsius used for waveform selection\n"
+"      temperature_mode:   use internal temperature sensor to determine temperature\n"
+"                          for waveform selection\n";

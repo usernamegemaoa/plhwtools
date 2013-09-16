@@ -1833,7 +1833,7 @@ static const char help_adc[] =
 "  are converted to volts and displayed.  When a reference voltage is\n"
 "  specified but no channel is selected, then all the channels are shown.\n"
 "  When a channel is selected, then a plain floating point voltage is\n"
-"  generated on stdout\n"
+"  generated on stdout.\n"
 "  First optional argument: reference voltage\n"
 "    internal:  use the internal reference voltage (default)\n"
 "    external:  use the external reference voltage\n"
@@ -1843,19 +1843,34 @@ static const char help_adc[] =
 "    vcom: read the VCOM value on its dedicated channel\n";
 
 static const char help_pbtn[] =
-"  No arguments, just a small procedure to manually test the buttons\n";
+"  No arguments, just a small procedure to manually test the buttons.\n";
 
 static const char help_eeprom[] =
-"  Supported arguments:\n"
+"  The first argument is the EEPROM mode, which is typically 24c01 for\n"
+"  128 bytes or 24c256 for 32 KBytes.  Then the second argument is one of\n"
+"  the following commands:\n"
 "    full_rw:        write random data, read it back and compare\n"
 "    e2f FILE_NAME:  dump EEPROM contents to a file, or stdout by default\n"
 "    f2e FILE_NAME:  dump file contents or stdin by default to EEPROM\n"
-"  Options: -o I2C_BLOCK_SIZE\n"
-"    The maximum I2C block transfer size in bytes can be passed as an\n"
-"    option.  The default is 96, but it can be increased to 512 for example\n"
-"    to speed-up the operation if the platform I2C driver supportes it.  It\n"
-"    can also be useful to reduce the block size in case the platform I2C\n"
-"    driver supports only smaller packets.\n";
+"  Options follow this format:\n"
+"    -o option1=value1,option2=value2\n"
+"  Supported options are:\n"
+"    i2c_block_size=SIZE\n"
+"      Maximum I2C block transfer size in bytes.  The default is 96, which\n"
+"      should work with all I2C bus drivers, but it can be increased to 512\n"
+"      for example in order to speed-up the data transfers when available.\n"
+"    page_size=SIZE\n"
+"      EEPROM page size.  A default page size is set based on the EEPROM\n"
+"      mode, but each manufacturer may implement different page sizes.  This\n"
+"      option overrides the default value.\n"
+"    zero_padding\n"
+"      Enable padding of the end of the EEPROM data with zeros, when writing\n"
+"      the contents of a file smaller than the EEPROM capacity.  This is\n"
+"      especially useful when storing plain text to ensure the data is well\n"
+"      null-terminated.\n"
+"    data_size=SIZE\n"
+"      Size of the data to use.  Use this option when only a part of the\n"
+"      EEPROM should be used, instead of its full capacity.\n";
 
 static const char help_power[] =
 "  Supported arguments:\n"
@@ -1875,6 +1890,7 @@ static const char help_epdc[] =
 "      power_off_delay_ms: delay in milliseconds between end of display\n"
 "                          update and display HV power off\n"
 "      clear_on_exit:      clear the screen when the ePDC is shut down\n"
-"      temperature:        temperature in celsius used for waveform selection\n"
-"      temperature_mode:   use internal temperature sensor to determine temperature\n"
-"                          for waveform selection\n";
+"      temperature:        temperature in degrees Celsius used for waveform\n"
+"                          selection\n"
+"      temperature_mode:   use internal temperature sensor to determine\n"
+"                          temperature for waveform selection\n";

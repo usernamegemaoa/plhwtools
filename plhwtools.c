@@ -440,7 +440,7 @@ static int run_cpld(struct ctx *ctx, int argc, char **argv)
 
 		LOG_N("initial CPLD data: [");
 		dump_cpld_data(cpld);
-		fprintf(LOG_FILE, "]\n");
+		LOG_PRINT("]\n");
 
 		return 0;
 	}
@@ -480,9 +480,9 @@ static void dump_cpld_data(const struct cpld *cpld)
 	end = &data[n];
 
 	for (byte = data; byte != end; ++byte)
-		fprintf(LOG_FILE, "%02X ", *byte);
+		LOG_PRINT("%02X ", *byte);
 
-	fprintf(LOG_FILE, "\b");
+	LOG_PRINT("\b");
 	free(data);
 }
 
@@ -1106,9 +1106,8 @@ static int run_eeprom(struct ctx *ctx, int argc, char **argv)
 		if (disable_stdin_buffering() < 0)
 			LOG("Warning: failed to disable input buffering");
 
-		fprintf(LOG_FILE,
-			"Warning: this will overwrite the EEPROM data.\n"
-			"Continue ? [N/y] ");
+		LOG_PRINT("Warning: this will overwrite the EEPROM data.\n"
+			  "Continue ? [N/y] ");
 		c = fgetc(stdin);
 		putchar('\n');
 
@@ -1118,7 +1117,7 @@ static int run_eeprom(struct ctx *ctx, int argc, char **argv)
 		if (c == 'y') {
 			return full_rw_eeprom(eeprom, &eeprom_opt);
 		} else {
-			fprintf(LOG_FILE, "aborted\n");
+			LOG_PRINT("aborted\n");
 			return -1;
 		}
 	}
@@ -1316,7 +1315,7 @@ static int rw_file_eeprom(struct eeprom *eeprom, int fd, int write_file,
 				left -= rwsz;
 			} else {
 				if (opt->zero_padding) {
-					fprintf(LOG_FILE, "\n");
+					LOG_PRINT("\n");
 					left -= rdsz;
 					ret = pad_eeprom(eeprom, left, opt);
 				}
@@ -1326,7 +1325,7 @@ static int rw_file_eeprom(struct eeprom *eeprom, int fd, int write_file,
 		}
 	}
 
-	fprintf(LOG_FILE, "\n");
+	LOG_PRINT("\n");
 	free(buffer);
 
 	return ret;
@@ -1444,8 +1443,7 @@ static void log_eeprom_progress(size_t total, size_t rem, const char *msg)
 	const size_t prog = total - rem;
 	const int prog_percent = prog * 100 / total;
 
-	fprintf(LOG_FILE, "\r%s EEPROM... %i%% (%zu)",
-		msg, prog_percent, prog);
+	LOG_PRINT("\r%s EEPROM... %i%% (%zu)", msg, prog_percent, prog);
 }
 
 /* ----------------------------------------------------------------------------
@@ -1781,12 +1779,12 @@ static void dump_hex_data(const char *data, size_t size)
 		int i;
 
 		if (line && !(line % 16))
-			fprintf(LOG_FILE, "\n");
+			LOG_PRINT("\n");
 
 		for (i = 0; i < length; ++i)
-			fprintf(LOG_FILE, "%02X ", *byte++);
+			LOG_PRINT("%02X ", *byte++);
 
-		fprintf(LOG_FILE, "\b\n");
+		LOG_PRINT("\b\n");
 		remaining -= length;
 	}
 }

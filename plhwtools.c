@@ -32,6 +32,7 @@
 #include <fcntl.h>
 #include <string.h>
 
+#include <plsdk/plconfig.h>
 #include <libplepaper.h>
 #include <libplhw.h>
 
@@ -50,6 +51,7 @@ static const char COPYRIGHT[] =
 	"Copyright (C) 2011, 2012, 2013 Plastic Logic Limited";
 
 struct ctx {
+	struct plconfig *config;
 	struct cpld *cpld;
 	struct hvpmic *hvpmic;
 	struct dac5820 *dac;
@@ -78,7 +80,7 @@ static int g_abort = 0;
 static struct termios g_original_stdin_termios;
 static enum { TERM_IN_BLANK, TERM_IN_ERROR, TERM_IN_SAVED, TERM_IN_EDITED }
 	g_stdin_termios_state = TERM_IN_BLANK;
-static const char *g_i2c_bus = PLHW_DEF_I2C_BUS;
+static const char *g_i2c_bus = NULL;
 static unsigned g_i2c_addr = 0;
 static const char *g_opt = NULL;
 
@@ -205,6 +207,7 @@ int main(int argc, char **argv)
 
 	static const char *OPTIONS = "h::va:b:o:";
 	struct ctx ctx = {
+		.config = NULL,
 		.cpld = NULL,
 		.hvpmic = NULL,
 		.dac = NULL,
@@ -274,6 +277,14 @@ int main(int argc, char **argv)
 		exit(EXIT_SUCCESS);
 	}
 
+	ctx.config = plconfig_init(NULL, "plhwtools");
+
+	if (ctx.config == NULL)
+		exit(EXIT_FAILURE);
+
+	if (g_i2c_bus == NULL)
+		g_i2c_bus = plconfig_get_str(ctx.config, "i2c-bus", NULL);
+
 	ret = run_cmd(&ctx, commands, (argc - optind), &argv[optind]);
 
 	/* -- clean-up --- */
@@ -298,6 +309,8 @@ int main(int argc, char **argv)
 
 	if (ctx.plep != NULL)
 		plep_free(ctx.plep);
+
+	plconfig_free(ctx.config);
 
 	if (restore_stdin_termios() < 0)
 		LOG("Warning: failed to restore stdin termios");

@@ -81,7 +81,7 @@ static struct termios g_original_stdin_termios;
 static enum { TERM_IN_BLANK, TERM_IN_ERROR, TERM_IN_SAVED, TERM_IN_EDITED }
 	g_stdin_termios_state = TERM_IN_BLANK;
 static const char *g_i2c_bus = NULL;
-static unsigned g_i2c_addr = 0;
+static unsigned g_i2c_addr = PLHW_NO_I2C_ADDR;
 static const char *g_opt = NULL;
 
 /* Top-level */
@@ -413,8 +413,7 @@ static void sigint_abort(int signum)
 static struct cpld *require_cpld(struct ctx *ctx)
 {
 	if (ctx->cpld == NULL)
-		ctx->cpld = cpld_init(g_i2c_bus, g_i2c_addr ?
-				      g_i2c_addr : CPLD_DEF_I2C_ADDR);
+		ctx->cpld = cpld_init(g_i2c_bus, g_i2c_addr);
 
 	return ctx->cpld;
 }
@@ -506,8 +505,7 @@ static void dump_cpld_data(const struct cpld *cpld)
 static struct hvpmic *require_hvpmic(struct ctx *ctx)
 {
 	if (ctx->hvpmic == NULL)
-		ctx->hvpmic = hvpmic_init(g_i2c_bus, g_i2c_addr ?
-					  g_i2c_addr : HVPMIC_DEF_I2C_ADDR);
+		ctx->hvpmic = hvpmic_init(g_i2c_bus, g_i2c_addr);
 
 	return ctx->hvpmic;
 }
@@ -840,8 +838,7 @@ static int dump_hvpmic_temperature(struct hvpmic *hvpmic)
 static struct dac5820 *require_dac(struct ctx *ctx)
 {
 	if (ctx->dac == NULL) {
-		ctx->dac = dac5820_init(g_i2c_bus, g_i2c_addr ?
-					g_i2c_addr : DAC5820_DEF_I2C_ADDR);
+		ctx->dac = dac5820_init(g_i2c_bus, g_i2c_addr);
 	}
 
 	return ctx->dac;
@@ -915,8 +912,7 @@ static int run_adc(struct ctx *ctx, int argc, char **argv)
 	int chan;
 
 	if (ctx->adc == NULL)
-		ctx->adc = adc11607_init(g_i2c_bus, g_i2c_addr ?
-					 g_i2c_addr : ADC11607_DEF_I2C_ADDR);
+		ctx->adc = adc11607_init(g_i2c_bus, g_i2c_addr);
 
 	if (ctx->adc == NULL)
 		return -1;
@@ -1016,8 +1012,7 @@ static int run_pbtn(struct ctx *ctx, int argc, char **argv)
 	int ret = 0;
 
 	if (ctx->pbtn == NULL)
-		ctx->pbtn = pbtn_init(g_i2c_bus, g_i2c_addr ?
-				      g_i2c_addr : PBTN_DEF_I2C_ADDR);
+		ctx->pbtn = pbtn_init(g_i2c_bus, g_i2c_addr);
 
 	if (ctx->pbtn == NULL)
 		return -1;
@@ -1096,9 +1091,7 @@ static int run_eeprom(struct ctx *ctx, int argc, char **argv)
 	cmd_str = argv[1];
 
 	if (ctx->eeprom == NULL) {
-		ctx->eeprom = eeprom_init(g_i2c_bus, g_i2c_addr ?
-					  g_i2c_addr : EEPROM_DEF_I2C_ADDR,
-					  eeprom_mode);
+		ctx->eeprom = eeprom_init(g_i2c_bus, g_i2c_addr, eeprom_mode);
 	}
 
 	if (ctx->eeprom == NULL)

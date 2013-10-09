@@ -1585,7 +1585,8 @@ static const struct power_seq *get_power_seq(int argc, char **argv)
 static struct plep *require_epdc(struct ctx *ctx)
 {
 	if (ctx->plep == NULL)
-		ctx->plep = plep_init(NULL, NULL); /* ToDo: parse options */
+		ctx->plep = plep_init(NULL, NULL, NULL);
+	/* ToDo: parse options */
 
 	return ctx->plep;
 }

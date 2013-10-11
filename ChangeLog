@@ -1,3 +1,22 @@
+Release v1.0 -> v1.1 - 2013-10-11
+
+Andrew Cox (1):
+      Add temperature and temperature mode to low-level ePDC options.
+
+Guillaume Tucker (7):
+      eeprom: use new API with EEPROM mode string
+      eeprom: add -o option parser
+      update help message with new eeprom options
+      use LOG_PRINT for special log message formatting
+      Android.mk: fix build with new libplutil and eglib
+      use new PLEP_TEMPERATURE_AUTO hardware option id
+      Android.mk: fix path to libplutil
+
+Michele Marchetti (3):
+      remove default I2C bus as it's now read from the config file
+      remove default I2C addresses
+      update plep_init call with NULL config file path
+
 Release v0.6 -> v1.0 - 2013-07-19
 
 Guillaume Tucker (6):

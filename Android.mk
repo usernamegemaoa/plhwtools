@@ -6,8 +6,8 @@ LOCAL_MODULE_TAGS := eng
 LOCAL_CFLAGS += -Wall -O2
 LOCAL_SRC_FILES := plhwtools.c
 LOCAL_C_INCLUDES += \
+	$(LOCAL_PATH)/../libplutil \
 	$(LOCAL_PATH)/../libplhw \
-	$(LOCAL_PATH)/../libplepaper \
-	$(LOCAL_PATH)/../plsdk/libplutil
+	$(LOCAL_PATH)/../libplepaper
 LOCAL_STATIC_LIBRARIES := libplhw libplepaper libplutil libeglib
 include $(BUILD_EXECUTABLE)

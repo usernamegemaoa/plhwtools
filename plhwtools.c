@@ -53,7 +53,7 @@ static const char COPYRIGHT[] =
 struct ctx {
 	struct plconfig *config;
 	struct cpld *cpld;
-	struct hvpmic *hvpmic;
+	struct max17135 *max17135;
 	struct dac5820 *dac;
 	struct adc11607 *adc;
 	struct eeprom *eeprom;
@@ -97,21 +97,21 @@ static struct cpld *require_cpld(struct ctx *ctx);
 static int run_cpld(struct ctx *ctx, int argc, char **argv);
 static void dump_cpld_data(const struct cpld *cpld);
 
-/* HVPMIC */
-static const char help_hvpmic[];
-static struct hvpmic *require_hvpmic(struct ctx *ctx);
-static int run_hvpmic(struct ctx *ctx, int argc, char **argv);
-static int set_hvpmic_timing(struct hvpmic *hvpmic, int argc, char **argv);
-static int set_hvpmic_timings(struct hvpmic *hvpmic, int argc, char **argv);
-static int set_hvpmic_vcom(struct hvpmic *hvpmic, int argc, char **argv);
-static int get_hvpmic_fault(struct hvpmic *hvpmic);
-static int dump_hvpmic_state(struct hvpmic *hvpmic);
-static int dump_hvpmic_en(struct hvpmic *hvpmic, enum hvpmic_en_id id);
-static int dump_hvpmic_timings(struct hvpmic *hvpmic);
-static int dump_hvpmic_vcom(struct hvpmic *hvpmic);
-static int dump_hvpmic_temperature(struct hvpmic *hvpmic);
+/* MAX17135 */
+static const char help_max17135[];
+static struct max17135 *require_max17135(struct ctx *ctx);
+static int run_max17135(struct ctx *ctx, int argc, char **argv);
+static int set_max17135_timing(struct max17135 *p, int argc, char **argv);
+static int set_max17135_timings(struct max17135 *p, int argc, char **argv);
+static int set_max17135_vcom(struct max17135 *p, int argc, char **argv);
+static int get_max17135_fault(struct max17135 *p);
+static int dump_max17135_state(struct max17135 *p);
+static int dump_max17135_en(struct max17135 *p, enum max17135_en_id id);
+static int dump_max17135_timings(struct max17135 *p);
+static int dump_max17135_vcom(struct max17135 *p);
+static int dump_max17135_temperature(struct max17135 *p);
 
-static const char HVPMIC_TIMINGS_SEQ0[HVPMIC_NB_TIMINGS] = {
+static const char MAX17135_TIMINGS_SEQ0[MAX17135_NB_TIMINGS] = {
 	8, 2, 11, 3, 0, 0, 0, 0
 };
 
@@ -173,7 +173,7 @@ static const struct power_seq {
 	const char *name;
 	int (*on) (struct ctx *ctx, char vcom);
 	int (*off) (struct ctx *ctx);
-	char timing[HVPMIC_NB_TIMINGS];
+	char timing[MAX17135_NB_TIMINGS];
 } seqs[] = {
 	{ .name = "seq0", .on = power_on_seq0, .off = power_off_seq0,
 	  .timing = { 8, 2, 11, 3, 0, 0, 0, 0 } },
@@ -193,7 +193,7 @@ int main(int argc, char **argv)
 
 	const struct command commands[] = {
 		CMD_STRUCT(cpld),
-		CMD_STRUCT(hvpmic),
+		CMD_STRUCT(max17135),
 		CMD_STRUCT(dac),
 		CMD_STRUCT(adc),
 		CMD_STRUCT(pbtn),
@@ -209,7 +209,7 @@ int main(int argc, char **argv)
 	struct ctx ctx = {
 		.config = NULL,
 		.cpld = NULL,
-		.hvpmic = NULL,
+		.max17135 = NULL,
 		.dac = NULL,
 		.adc = NULL,
 		.eeprom = NULL,
@@ -292,8 +292,8 @@ int main(int argc, char **argv)
 	if (ctx.cpld != NULL)
 		cpld_free(ctx.cpld);
 
-	if (ctx.hvpmic != NULL)
-		hvpmic_free(ctx.hvpmic);
+	if (ctx.max17135 != NULL)
+		max17135_free(ctx.max17135);
 
 	if (ctx.dac != NULL)
 		dac5820_free(ctx.dac);
@@ -340,7 +340,7 @@ static void print_help(const struct command *commands, const char *help_cmd)
 "    The following commands can be used (arguments are detailed separately):\n"
 "\n"
 "    cpld       Control Plasstic Logic CPLD over I2C register interface\n"
-"    hvpmic     Control MAX17135 HV PMIC (timings, switches)\n"
+"    max17135   Control MAX17135 HV PMIC (timings, switches)\n"
 "    dac        Control DAC power and register value\n"
 "    adc        Read ADC values\n"
 "    pbtn       Push button test procedure using I2C GPIO expander\n"
@@ -502,39 +502,39 @@ static void dump_cpld_data(const struct cpld *cpld)
  * HV PMIC
  */
 
-static struct hvpmic *require_hvpmic(struct ctx *ctx)
+static struct max17135 *require_max17135(struct ctx *ctx)
 {
-	if (ctx->hvpmic == NULL)
-		ctx->hvpmic = hvpmic_init(g_i2c_bus, g_i2c_addr);
+	if (ctx->max17135 == NULL)
+		ctx->max17135 = max17135_init(g_i2c_bus, g_i2c_addr);
 
-	return ctx->hvpmic;
+	return ctx->max17135;
 }
 
-static int run_hvpmic(struct ctx *ctx, int argc, char **argv)
+static int run_max17135(struct ctx *ctx, int argc, char **argv)
 {
-	struct hvpmic *hvpmic = require_hvpmic(ctx);
+	struct max17135 *max17135 = require_max17135(ctx);
 	const char *cmd_str;
 	int on;
 
-	if (hvpmic == NULL)
+	if (max17135 == NULL)
 		return -1;
 
 	if (argc == 0)
-		return dump_hvpmic_state(hvpmic);
+		return dump_max17135_state(max17135);
 
 	cmd_str = argv[0];
 
 	if (!strcmp(cmd_str, "timing"))
-		return set_hvpmic_timing(hvpmic, argc - 1, &argv[1]);
+		return set_max17135_timing(max17135, argc - 1, &argv[1]);
 
 	if (!strcmp(cmd_str, "timings"))
-		return set_hvpmic_timings(hvpmic, argc - 1, &argv[1]);
+		return set_max17135_timings(max17135, argc - 1, &argv[1]);
 
 	if (!strcmp(cmd_str, "vcom"))
-		return set_hvpmic_vcom(hvpmic, argc - 1, &argv[1]);
+		return set_max17135_vcom(max17135, argc - 1, &argv[1]);
 
 	if (!strcmp(cmd_str, "fault"))
-		return get_hvpmic_fault(hvpmic);
+		return get_max17135_fault(max17135);
 
 	if (argc != 2) {
 		LOG("invalid arguments");
@@ -549,20 +549,20 @@ static int run_hvpmic(struct ctx *ctx, int argc, char **argv)
 	}
 
 	if (!strcmp(cmd_str, "en"))
-		return hvpmic_set_en(hvpmic, HVPMIC_EN_EN, on);
+		return max17135_set_en(max17135, MAX17135_EN_EN, on);
 
 	if (!strcmp(cmd_str, "cen"))
-		return hvpmic_set_en(hvpmic, HVPMIC_EN_CEN, on);
+		return max17135_set_en(max17135, MAX17135_EN_CEN, on);
 
 	if (!strcmp(cmd_str, "cen2"))
-		return hvpmic_set_en(hvpmic, HVPMIC_EN_CEN2, on);
+		return max17135_set_en(max17135, MAX17135_EN_CEN2, on);
 
 	LOG("invalid arguments");
 
 	return -1;
 }
 
-static int set_hvpmic_timing(struct hvpmic *hvpmic, int argc, char **argv)
+static int set_max17135_timing(struct max17135 *p, int argc, char **argv)
 {
 	int timing_no;
 	int timing_ms;
@@ -574,9 +574,9 @@ static int set_hvpmic_timing(struct hvpmic *hvpmic, int argc, char **argv)
 
 	timing_no = atoi(argv[0]);
 
-	if ((timing_no < 0) || (timing_no >= HVPMIC_NB_TIMINGS)) {
+	if ((timing_no < 0) || (timing_no >= MAX17135_NB_TIMINGS)) {
 		LOG("invalid timing number %i (valid: 0 - %i)",
-		    timing_no, HVPMIC_NB_TIMINGS);
+		    timing_no, MAX17135_NB_TIMINGS);
 		return -1;
 	}
 
@@ -589,29 +589,29 @@ static int set_hvpmic_timing(struct hvpmic *hvpmic, int argc, char **argv)
 
 	LOG("setting timing #%i to %i ms", timing_no, timing_ms);
 
-	return hvpmic_set_timing(hvpmic, timing_no, timing_ms);
+	return max17135_set_timing(p, timing_no, timing_ms);
 }
 
-static int set_hvpmic_timings(struct hvpmic *hvpmic, int argc, char **argv)
+static int set_max17135_timings(struct max17135 *p, int argc, char **argv)
 {
-	char timings[HVPMIC_NB_TIMINGS];
+	char timings[MAX17135_NB_TIMINGS];
 	int stat;
 	int i;
 
 	if (argc < 1) {
-		stat = hvpmic_get_timings(hvpmic, timings, HVPMIC_NB_TIMINGS);
+		stat = max17135_get_timings(p, timings, MAX17135_NB_TIMINGS);
 
 		if (stat < 0) {
-			LOG("failed to get the HVPMIC timings");
+			LOG("failed to get the MAX17135 timings");
 			return stat;
 		}
 
-		if (stat != HVPMIC_NB_TIMINGS) {
+		if (stat != MAX17135_NB_TIMINGS) {
 			LOG("could only read %i timings", stat);
 			return -1;
 		}
 
-		for (i = 0; i < HVPMIC_NB_TIMINGS; ++i)
+		for (i = 0; i < MAX17135_NB_TIMINGS; ++i)
 			printf("%d: %d\n", i, timings[i]);
 	} else {
 		const struct power_seq *seq;
@@ -625,15 +625,15 @@ static int set_hvpmic_timings(struct hvpmic *hvpmic, int argc, char **argv)
 		if (seq != NULL) {
 			LOG("Setting timings for %s:", seq->name);
 
-			for (i = 0; i < HVPMIC_NB_TIMINGS; ++i) {
+			for (i = 0; i < MAX17135_NB_TIMINGS; ++i) {
 				LOG("%d: %d", i, seq->timing[i]);
 				timings[i] = seq->timing[i];
 			}
 
-			n_timings = HVPMIC_NB_TIMINGS;
+			n_timings = MAX17135_NB_TIMINGS;
 		} else {
-			if (argc > HVPMIC_NB_TIMINGS) {
-				n_timings = HVPMIC_NB_TIMINGS;
+			if (argc > MAX17135_NB_TIMINGS) {
+				n_timings = MAX17135_NB_TIMINGS;
 				LOG("warning: only using the %d first timings",
 				    n_timings);
 			} else {
@@ -653,7 +653,7 @@ static int set_hvpmic_timings(struct hvpmic *hvpmic, int argc, char **argv)
 			}
 		}
 
-		stat = hvpmic_set_timings(hvpmic, timings, n_timings);
+		stat = max17135_set_timings(p, timings, n_timings);
 
 		if (stat) {
 			LOG("failed to write the timings");
@@ -664,13 +664,19 @@ static int set_hvpmic_timings(struct hvpmic *hvpmic, int argc, char **argv)
 	return 0;
 }
 
-static int set_hvpmic_vcom(struct hvpmic *hvpmic, int argc, char **argv)
+static int set_max17135_vcom(struct max17135 *p, int argc, char **argv)
 {
 	int vcom_raw;
 
 	if (argc < 1) {
-		LOG("invalid arguments");
-		return -1;
+		char value;
+
+		if (max17135_get_vcom(p, &value))
+			return -1;
+
+		printf("%d\n", value);
+
+		return 0;
 	}
 
 	vcom_raw = atoi(argv[0]);
@@ -682,82 +688,82 @@ static int set_hvpmic_vcom(struct hvpmic *hvpmic, int argc, char **argv)
 
 	LOG("setting VCOM to %i (0x%02X)", vcom_raw, vcom_raw);
 
-	return hvpmic_set_vcom(hvpmic, (char) vcom_raw);
+	return max17135_set_vcom(p, (char) vcom_raw);
 }
 
-#define HVPMIC_FAULT_CASE(id) \
+#define MAX17135_FAULT_CASE(id) \
 	case id: fault_str = #id; break;
 
-static int get_hvpmic_fault(struct hvpmic *hvpmic)
+static int get_max17135_fault(struct max17135 *p)
 {
-	int fault = hvpmic_get_fault(hvpmic);
+	const int fault = max17135_get_fault(p);
 	const char *fault_str = NULL;
 
 	if (fault < 0) {
-		LOG("failed to read HVPMIC fault id");
+		LOG("failed to read MAX17135 fault id");
 		return -1;
 	}
 
 	switch (fault) {
-	HVPMIC_FAULT_CASE(HVPMIC_FAULT_NONE)
-	HVPMIC_FAULT_CASE(HVPMIC_FAULT_FBPG)
-	HVPMIC_FAULT_CASE(HVPMIC_FAULT_HVINP)
-	HVPMIC_FAULT_CASE(HVPMIC_FAULT_HVINN)
-	HVPMIC_FAULT_CASE(HVPMIC_FAULT_FBNG)
-	HVPMIC_FAULT_CASE(HVPMIC_FAULT_HVINPSC)
-	HVPMIC_FAULT_CASE(HVPMIC_FAULT_HVINNSC)
-	HVPMIC_FAULT_CASE(HVPMIC_FAULT_OT)
+	MAX17135_FAULT_CASE(MAX17135_FAULT_NONE)
+	MAX17135_FAULT_CASE(MAX17135_FAULT_FBPG)
+	MAX17135_FAULT_CASE(MAX17135_FAULT_HVINP)
+	MAX17135_FAULT_CASE(MAX17135_FAULT_HVINN)
+	MAX17135_FAULT_CASE(MAX17135_FAULT_FBNG)
+	MAX17135_FAULT_CASE(MAX17135_FAULT_HVINPSC)
+	MAX17135_FAULT_CASE(MAX17135_FAULT_HVINNSC)
+	MAX17135_FAULT_CASE(MAX17135_FAULT_OT)
 	}
 
 	if (fault_str == NULL) {
-		LOG("invalid HVPMIC fault id");
+		LOG("invalid MAX17135 fault id");
 		return -1;
 	}
 
-	LOG("HVPMIC fault: %s", fault_str);
+	LOG("MAX17135 fault: %s", fault_str);
 
 	return 0;
 }
 
-#undef HVPMIC_FAULT_CASE
+#undef MAX17135_FAULT_CASE
 
-static int dump_hvpmic_state(struct hvpmic *hvpmic)
+static int dump_max17135_state(struct max17135 *p)
 {
 	int ret = 0;
 
-	LOG("HVPMIC id: 0x%02X, rev: 0x%02X",
-	    hvpmic_get_prod_id(hvpmic), hvpmic_get_prod_rev(hvpmic));
+	LOG("MAX17135 id: 0x%02X, rev: 0x%02X",
+	    max17135_get_prod_id(p), max17135_get_prod_rev(p));
 
-	if (dump_hvpmic_en(hvpmic, HVPMIC_EN_EN) < 0)
+	if (dump_max17135_en(p, MAX17135_EN_EN) < 0)
 		ret = -1;
 
-	if (dump_hvpmic_en(hvpmic, HVPMIC_EN_CEN) < 0)
+	if (dump_max17135_en(p, MAX17135_EN_CEN) < 0)
 		ret = -1;
 
-	if (dump_hvpmic_en(hvpmic, HVPMIC_EN_CEN2) < 0)
+	if (dump_max17135_en(p, MAX17135_EN_CEN2) < 0)
 		ret = -1;
 
-	if (dump_hvpmic_timings(hvpmic) < 0)
+	if (dump_max17135_timings(p) < 0)
 		ret = -1;
 
-	if (dump_hvpmic_vcom(hvpmic) < 0)
+	if (dump_max17135_vcom(p) < 0)
 		ret = -1;
 
-	if (dump_hvpmic_temperature(hvpmic) < 0)
+	if (dump_max17135_temperature(p) < 0)
 		ret = -1;
 
 	return ret;
 }
 
-static int dump_hvpmic_en(struct hvpmic *hvpmic, enum hvpmic_en_id id)
+static int dump_max17135_en(struct max17135 *p, enum max17135_en_id id)
 {
-	int en = hvpmic_get_en(hvpmic, id);
+	const int en = max17135_get_en(p, id);
 	const char *en_name = NULL;
 
 	switch (id) {
-	case HVPMIC_EN_EN:   en_name = "EN";   break;
-	case HVPMIC_EN_CEN:  en_name = "CEN";  break;
-	case HVPMIC_EN_CEN2: en_name = "CEN2"; break;
+	case MAX17135_EN_EN:   en_name = "EN";   break;
+	case MAX17135_EN_CEN:  en_name = "CEN";  break;
+	case MAX17135_EN_CEN2: en_name = "CEN2"; break;
 	}
 
 	if (en < 0) {
@@ -770,28 +776,28 @@ static int dump_hvpmic_en(struct hvpmic *hvpmic, enum hvpmic_en_id id)
 	return 0;
 }
 
-static int dump_hvpmic_timings(struct hvpmic *hvpmic)
+static int dump_max17135_timings(struct max17135 *p)
 {
-	char timings[HVPMIC_NB_TIMINGS];
-	int ret = hvpmic_get_timings(hvpmic, timings, HVPMIC_NB_TIMINGS);
+	char timings[MAX17135_NB_TIMINGS];
+	int ret = max17135_get_timings(p, timings, MAX17135_NB_TIMINGS);
 
 	if (ret < 0) {
 		LOG("failed to get the timings");
 	} else {
 		unsigned i;
 
-		for (i = 0; i < HVPMIC_NB_TIMINGS; ++i)
+		for (i = 0; i < MAX17135_NB_TIMINGS; ++i)
 			LOG("timing #%i: %3i ms", i, timings[i]);
 	}
 
 	return ret;
 }
 
-static int dump_hvpmic_vcom(struct hvpmic *hvpmic)
+static int dump_max17135_vcom(struct max17135 *p)
 {
 	char vcom_raw;
 
-	if (hvpmic_get_vcom(hvpmic, &vcom_raw) < 0) {
+	if (max17135_get_vcom(p, &vcom_raw) < 0) {
 		LOG("failed to read VCOM");
 		return -1;
 	}
@@ -801,14 +807,14 @@ static int dump_hvpmic_vcom(struct hvpmic *hvpmic)
 	return 0;
 }
 
-static int dump_hvpmic_temperature(struct hvpmic *hvpmic)
+static int dump_max17135_temperature(struct max17135 *p)
 {
 	int sensor_en;
 	short temp_i, temp_e;
 	float temp_i_f, temp_e_f;
 	int ret = 0;
 
-	sensor_en = hvpmic_get_temp_sensor_en(hvpmic);
+	sensor_en = max17135_get_temp_sensor_en(p);
 
 	if (sensor_en < 0) {
 		LOG("failed to get the temperature sensor state");
@@ -817,13 +823,13 @@ static int dump_hvpmic_temperature(struct hvpmic *hvpmic)
 		LOG("temperature sensor enabled: %s", sensor_en ? "yes":"no");
 	}
 
-	if ((hvpmic_get_temperature(hvpmic, &temp_i, HVPMIC_TEMP_INT) < 0)
-	    || (hvpmic_get_temperature(hvpmic, &temp_e, HVPMIC_TEMP_EXT) < 0)){
+	if ((max17135_get_temperature(p, &temp_i, MAX17135_TEMP_INT) < 0)
+	    || (max17135_get_temperature(p, &temp_e, MAX17135_TEMP_EXT) < 0)){
 		LOG("failed to read temperatures");
 		ret = -1;
 	} else {
-		temp_i_f = hvpmic_convert_temperature(hvpmic, temp_i);
-		temp_e_f = hvpmic_convert_temperature(hvpmic, temp_e);
+		temp_i_f = max17135_convert_temperature(p, temp_i);
+		temp_e_f = max17135_convert_temperature(p, temp_e);
 		LOG("internal temperature: %.1f C", temp_i_f);
 		LOG("external temperature: %.1f C", temp_e_f);
 	}
@@ -1516,15 +1522,15 @@ static int run_power(struct ctx *ctx, int argc, char **argv)
 static int power_on_seq0(struct ctx *ctx, char vcom)
 {
 	struct cpld *cpld = require_cpld(ctx);
-	struct hvpmic *hvpmic = require_hvpmic(ctx);
+	struct max17135 *max17135 = require_max17135(ctx);
 	struct dac5820 *dac = require_dac(ctx);
 
-	if ((cpld == NULL) || (hvpmic == NULL))
+	if ((cpld == NULL) || (max17135 == NULL))
 		return -1;
 
 	STEP(cpld_set_switch(cpld, CPLD_BPCOM_CLAMP, 1), "BPCOM clamp");
 	STEP(cpld_set_switch(cpld, CPLD_HVEN, 1), "HV enable");
-	STEP(hvpmic_wait_for_pok(hvpmic), "wait for POK");
+	STEP(max17135_wait_for_pok(max17135), "wait for POK");
 	STEP(cpld_set_switch(cpld, CPLD_COM_SW_CLOSE, 0), "COM open");
 	STEP(cpld_set_switch(cpld, CPLD_COM_SW_EN, 1), "COM enable");
 	STEP(cpld_set_switch(cpld, CPLD_COM_PSU, 1), "COM PSU on");
@@ -1815,7 +1821,7 @@ static const char help_cpld[] =
 "  Other:\n"
 "    version:      Get the CPLD version number (plain decimal on stdout)\n";
 
-static const char help_hvpmic[] =
+static const char help_max17135[] =
 "  With no arguments, all the HV PMIC status information is dumped.\n"
 "  To set a timing value:\n"
 "    timing TIMING_NUMBER TIMING_VALUE_MS\n"
@@ -1881,7 +1887,7 @@ static const char help_power[] =
 "  Supported arguments:\n"
 "    on [seq] [vcom]\n"
 "      turn the power on, with optional sequence name (seq0 by default) and\n"
-"      optional HVPMIC VCOM value (0-255)\n"
+"      optional VCOM register value (decimal, range varies with seq type)\n"
 "    off [seq]\n"
 "      turn the power off\n";
 

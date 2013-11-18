@@ -37,7 +37,7 @@
 #include <libplhw.h>
 
 #define LOG_TAG "plhw"
-#include "log.h"
+#include <plsdk/log.h>
 
 static const char APP_NAME[] = "plhwtools";
 static const char VERSION[] = "1.1";
@@ -54,6 +54,7 @@ struct ctx {
 	struct plconfig *config;
 	struct cpld *cpld;
 	struct max17135 *max17135;
+	struct tps65185 *tps65185;
 	struct dac5820 *dac;
 	struct adc11607 *adc;
 	struct eeprom *eeprom;
@@ -113,6 +114,22 @@ static int dump_max17135_temperature(struct max17135 *p);
 
 static const char MAX17135_TIMINGS_SEQ0[MAX17135_NB_TIMINGS] = {
 	8, 2, 11, 3, 0, 0, 0, 0
+};
+
+/* TPS65185 */
+static const char help_tps65185[];
+static struct tps65185 *require_tps65185(struct ctx *ctx);
+static int run_tps65185(struct ctx *ctx, int argc, char **argv);
+static int run_tps65185_vcom(struct tps65185 *p, int argc, char **argv);
+static int run_tps65185_seq(struct tps65185 *p, int argc, char **argv);
+static int run_tps65185_en(struct tps65185 *p, int argc, char **argv);
+static int dump_tps65185_state(struct tps65185 *p);
+static void dump_tps65185_seq_item(const char *name,
+				   enum tps65185_strobe strobe,
+				   const struct tps65185_seq *seq);
+
+static const char *tps65185_en_id_str[6] = {
+	"vgneg", "vee", "vpos", "vddh", "vcom", "v3p3",
 };
 
 /* DAC */
@@ -194,6 +211,7 @@ int main(int argc, char **argv)
 	const struct command commands[] = {
 		CMD_STRUCT(cpld),
 		CMD_STRUCT(max17135),
+		CMD_STRUCT(tps65185),
 		CMD_STRUCT(dac),
 		CMD_STRUCT(adc),
 		CMD_STRUCT(pbtn),
@@ -294,6 +312,9 @@ int main(int argc, char **argv)
 
 	if (ctx.max17135 != NULL)
 		max17135_free(ctx.max17135);
+
+	if (ctx.tps65185 != NULL)
+		tps65185_free(ctx.tps65185);
 
 	if (ctx.dac != NULL)
 		dac5820_free(ctx.dac);
@@ -758,12 +779,15 @@ static int dump_max17135_state(struct max17135 *p)
 static int dump_max17135_en(struct max17135 *p, enum max17135_en_id id)
 {
 	const int en = max17135_get_en(p, id);
-	const char *en_name = NULL;
+	const char *en_name;
 
 	switch (id) {
 	case MAX17135_EN_EN:   en_name = "EN";   break;
 	case MAX17135_EN_CEN:  en_name = "CEN";  break;
 	case MAX17135_EN_CEN2: en_name = "CEN2"; break;
+	default:
+		assert(!"invalid power rail identifier");
+		return -1;
 	}
 
 	if (en < 0) {
@@ -838,14 +862,281 @@ static int dump_max17135_temperature(struct max17135 *p)
 }
 
 /* ----------------------------------------------------------------------------
+ * TPS65185
+ */
+
+static struct tps65185 *require_tps65185(struct ctx *ctx)
+{
+	if (ctx->tps65185 == NULL)
+		ctx->tps65185 = tps65185_init(g_i2c_bus, g_i2c_addr);
+
+	return ctx->tps65185;
+}
+
+static int run_tps65185(struct ctx *ctx, int argc, char **argv)
+{
+	struct tps65185 *tps65185 = require_tps65185(ctx);
+	const char *cmd_str;
+
+	if (tps65185 == NULL)
+		return -1;
+
+	if (argc == 0)
+		return dump_tps65185_state(tps65185);
+
+	cmd_str = argv[0];
+
+	if (!strcmp(cmd_str, "vcom"))
+		return run_tps65185_vcom(tps65185, argc - 1, &argv[1]);
+
+	if (!strcmp(cmd_str, "seq"))
+		return run_tps65185_seq(tps65185, argc - 1, &argv[1]);
+
+	if (!strcmp(cmd_str, "active"))
+		return tps65185_set_power(tps65185, TPS65185_ACTIVE);
+
+	if (!strcmp(cmd_str, "standby"))
+		return tps65185_set_power(tps65185, TPS65185_STANDBY);
+
+	if (!strcmp(cmd_str, "en"))
+		return run_tps65185_en(tps65185, argc - 1, &argv[1]);
+
+	LOG("unsupported command: %s", cmd_str);
+
+	return -1;
+}
+
+static int run_tps65185_vcom(struct tps65185 *p, int argc, char **argv)
+{
+	int vcom_raw;
+
+	if (argc == 0) {
+		uint16_t vcom;
+
+		if (tps65185_get_vcom(p, &vcom))
+			return -1;
+
+		printf("%d\n", vcom);
+
+		return 0;
+	}
+
+	vcom_raw = atoi(argv[0]);
+
+	if ((vcom_raw < 0) || (vcom_raw > 0x1FF)) {
+		LOG("invalid VCOM value %d (value: 0 - 511)", vcom_raw);
+		return -1;
+	}
+
+	LOG("setting VCOM to %d (0x%04X)", vcom_raw, vcom_raw);
+
+	return tps65185_set_vcom(p, (uint16_t)vcom_raw);
+}
+
+static int run_tps65185_seq(struct tps65185 *p, int argc, char **argv)
+{
+	struct tps65185_seq seq;
+	const char *up_down_str;
+	int up;
+	int i;
+	char **it;
+
+	if (argc < 1) {
+		LOG("invalid arguments");
+		return -1;
+	}
+
+	up_down_str = argv[0];
+
+	if (!strcmp(up_down_str, "up")) {
+		up = 1;
+	} else if (!strcmp(up_down_str, "down")) {
+		up = 0;
+	} else {
+		LOG("invalid up/down identifier");
+		return -1;
+	}
+
+	if (argc == 1) {
+		if (tps65185_get_seq(p, &seq, up))
+			return -1;
+
+		dump_tps65185_seq_item("VDDH", seq.vddh, &seq);
+		dump_tps65185_seq_item("VPOS", seq.vpos, &seq);
+		dump_tps65185_seq_item("VEE", seq.vee, &seq);
+		dump_tps65185_seq_item("VNEG", seq.vneg, &seq);
+
+		return 0;
+	}
+
+	if (argc != 9) {
+		LOG("invalid sequence arguments");
+		return -1;
+	}
+
+	it = &argv[1];
+
+	{
+		enum tps65185_strobe * const strobes[4] = {
+			&seq.vddh, &seq.vpos, &seq.vee, &seq.vneg
+		};
+
+		for (i = 0; i < 4; ++i) {
+			const int value = atoi(*it++);
+
+			if ((value < 1) || (value > 4)) {
+				LOG("invalid strobe value: %d (1-4)", value);
+				return -1;
+			}
+
+			*strobes[i] = value - 1;
+		}
+	}
+
+	{
+		enum tps65185_delay * const delays[4] = {
+			&seq.strobe1, &seq.strobe2, &seq.strobe3, &seq.strobe4
+		};
+
+		for (i = 0; i < 4; ++i) {
+			const int value = atoi(*it++);
+
+			if ((value < 3) || (value > 12) || (value % 3)) {
+				LOG("invalid strobe delay value: %d", value);
+				return -1;
+			}
+
+			*delays[i] = (value / 3) - 1;
+		}
+	}
+
+	return tps65185_set_seq(p, &seq, up);
+}
+
+static int run_tps65185_en(struct tps65185 *p, int argc, char **argv)
+{
+	const char *en_str;
+	enum tps65185_en_id id;
+	int on;
+
+	if (argc == 0) {
+		LOG("no power rail identifier provided");
+		return -1;
+	}
+
+	en_str = argv[0];
+
+	for (id = 0; id < 6; ++id)
+		if (!strcmp(en_str, tps65185_en_id_str[id]))
+			break;
+
+	if (id == 6) {
+		LOG("invalid power rail identifier: %s", en_str);
+		return -1;
+	}
+
+	if (argc == 1) {
+		on = tps65185_get_en(p, id);
+
+		if (on < 0)
+			return -1;
+
+		LOG("%s: %s", en_str, on ? "on" : "off");
+
+		return 0;
+	}
+
+	on = get_on_off_opt(argv[1]);
+
+	if (on < 0)
+		return -1;
+
+	return tps65185_set_en(p, id, on);
+}
+
+static int dump_tps65185_state(struct tps65185 *p)
+{
+	struct tps65185_info info;
+	struct tps65185_seq seq;
+	uint16_t vcom;
+	enum tps65185_en_id en_id;
+
+	tps65185_get_info(p, &info);
+	LOG("version: %d.%d.%d", info.version, info.major, info.minor);
+
+	if (tps65185_get_vcom(p, &vcom)) {
+		LOG("failed to read VCOM...");
+		return -1;
+	}
+
+	LOG("VCOM: %d (0x%04X)", vcom, vcom);
+
+	if (tps65185_get_seq(p, &seq, 1))
+		return -1;
+
+	LOG("Power up sequence:");
+	dump_tps65185_seq_item("VDDH", seq.vddh, &seq);
+	dump_tps65185_seq_item("VPOS", seq.vpos, &seq);
+	dump_tps65185_seq_item("VEE", seq.vee, &seq);
+	dump_tps65185_seq_item("VNEG", seq.vneg, &seq);
+
+	if (tps65185_get_seq(p, &seq, 0))
+		return -1;
+
+	LOG("Power down sequence:");
+	dump_tps65185_seq_item("VDDH", seq.vddh, &seq);
+	dump_tps65185_seq_item("VPOS", seq.vpos, &seq);
+	dump_tps65185_seq_item("VEE", seq.vee, &seq);
+	dump_tps65185_seq_item("VNEG", seq.vneg, &seq);
+
+	LOG("Power rail states:");
+	for (en_id = 0; en_id < 6; ++en_id) {
+		int en = tps65185_get_en(p, en_id);
+
+		if (en < 0)
+			return -1;
+
+		LOG("%s: %s", tps65185_en_id_str[en_id], en ? "on" : "off");
+	}
+
+	return 0;
+}
+
+static void dump_tps65185_seq_item(const char *name,
+				   enum tps65185_strobe strobe,
+				   const struct tps65185_seq *seq)
+{
+	enum tps65185_delay delay;
+
+	switch (strobe) {
+	case TPS65185_STROBE1:
+		delay = seq->strobe1;
+		break;
+	case TPS65185_STROBE2:
+		delay = seq->strobe2;
+		break;
+	case TPS65185_STROBE3:
+		delay = seq->strobe3;
+		break;
+	case TPS65185_STROBE4:
+		delay = seq->strobe4;
+		break;
+	default:
+		assert(!"invalid strobe identifier");
+		return;
+	}
+
+	LOG("%5s: STROBE%d (%d ms)", name, (strobe + 1), ((delay + 1) * 3));
+}
+
+/* ----------------------------------------------------------------------------
  * DAC
  */
 
 static struct dac5820 *require_dac(struct ctx *ctx)
 {
-	if (ctx->dac == NULL) {
+	if (ctx->dac == NULL)
 		ctx->dac = dac5820_init(g_i2c_bus, g_i2c_addr);
-	}
 
 	return ctx->dac;
 }
@@ -858,10 +1149,8 @@ static int run_dac(struct ctx *ctx, int argc, char **argv)
 	enum dac5820_channel_id channel_id;
 	int value;
 
-	if (ctx->dac == NULL)
+	if (dac == NULL)
 		return -1;
-
-	dac = ctx->dac;
 
 	if (argc < 2) {
 		LOG("invalid arguments");
@@ -1822,13 +2111,29 @@ static const char help_cpld[] =
 "    version:      Get the CPLD version number (plain decimal on stdout)\n";
 
 static const char help_max17135[] =
-"  With no arguments, all the HV PMIC status information is dumped.\n"
+"  With no arguments, all the status information is dumped.\n"
 "  To set a timing value:\n"
 "    timing TIMING_NUMBER TIMING_VALUE_MS\n"
-"  To set the VCOM register value:\n"
-"    vcom VCOM_REGISTER_VALUE\n"
+"  To set or get the VCOM register value:\n"
+"    vcom [VCOM_REGISTER_VALUE]\n"
 "  To switch on/off the HV power supplies (en, cen, cen2):\n"
 "    [en, cen, cen2] [on, off]\n";
+
+static const char help_tps65185[] =
+"  With no arguments, all the status information is dumped.\n"
+"  To set or get the VCOM register value (0 to 511):\n"
+"    vcom [VCOM_REGISTER_VALUE]\n"
+"  To set or get the power up or down sequence timings:\n"
+"    seq [up, down] [VDDH VPOS VEE VNEG STROBE1 STROBE2 STROBE3 STROBE4]\n"
+"    Each voltage (VDDH..VNEG) takes a strobe value between 1 and 4, and\n"
+"    each strobe (STROBE1..STROBE4) is a delay of either 3, 6, 9 or 12 ms.\n"
+"  To set the power mode to \"active\" (wait until HV is turned on):\n"
+"    active\n"
+"  To set the power mode to \"standby\" (wait until HV is turned off):\n"
+"    standby\n"
+"  To set or get an individual power rail enable status:\n"
+"    en [vgneg, vee, vpos, vddh, vcom, v3p3] [on, off]\n"
+"    When no \"on\" or \"off\" value is given, the current state is logged.\n";
 
 static const char help_dac[] =
 "  First argument: either A or B to select the channel.\n"

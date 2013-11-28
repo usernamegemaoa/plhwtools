@@ -149,6 +149,7 @@ static int pbtn_abort_cb(void);
 /* EEPROM */
 struct eeprom_opt {
 	size_t data_size;
+	size_t skip;
 	int zero_padding;
 };
 static const char help_eeprom[];
@@ -1395,6 +1396,7 @@ static int run_eeprom(struct ctx *ctx, int argc, char **argv)
 	eeprom = ctx->eeprom;
 
 	eeprom_opt.data_size = eeprom_get_size(eeprom);
+	eeprom_opt.skip = 0;
 	eeprom_opt.zero_padding = 0;
 
 	if (g_opt != NULL)
@@ -1585,7 +1587,7 @@ static int rw_file_eeprom(struct eeprom *eeprom, int fd, int write_file,
 		return -1;
 	}
 
-	eeprom_seek(eeprom, 0);
+	eeprom_seek(eeprom, opt->skip);
 	ret = 0;
 
 	while (left && !ret) {
@@ -1726,6 +1728,24 @@ static int parse_eeprom_opt(struct eeprom *eeprom, struct eeprom_opt *eopt)
 
 			LOG("data size: %lu", ul_value);
 			eopt->data_size = ul_value;
+		} else if (!strcmp(key, "skip")) {
+			if (str_value == NULL) {
+				LOG("no skip size specified");
+				ret = -1;
+				goto exit_now;
+			}
+
+			errno = 0;
+			ul_value = strtoul(str_value, NULL, 10);
+
+			if (errno) {
+				LOG("failed to parse skip size");
+				ret = -1;
+				goto exit_now;
+			}
+
+			LOG("skip: %lu", ul_value);
+			eopt->skip = ul_value;
 		} else {
 			LOG("invalid option name: %s", key);
 			ret = -1;
@@ -1909,21 +1929,21 @@ static int epdc_get_set_hw_opt(struct ctx *ctx, int argc, char **argv)
 	}
 
 	if (argc == 1) {
-		if (plep_get_hw_opt(ctx->plep, opt, &value))
-		{
-			LOG("Error getting ePDC opt %s!\n", opt_str);
+		if (plep_get_hw_opt(ctx->plep, opt, &value)) {
+			LOG("Error getting ePDC opt %s!", opt_str);
 			return -1;
 		}
-		LOG("ePDC opt %s: %d\n", opt_str, value);
+
+		LOG("ePDC opt %s: %d", opt_str, value);
 	} else {
 		value = atoi(argv[1]);
 
-		if (plep_set_hw_opt(ctx->plep, opt, value))
-		{
+		if (plep_set_hw_opt(ctx->plep, opt, value)) {
 			LOG("Error setting ePDC opt %s!\n", opt_str);
 			return -1;
 		}
-		LOG("ePDC opt %s set to: %d\n", opt_str, value);
+
+		LOG("ePDC opt %s set to: %d", opt_str, value);
 	}
 
 	return 0;
@@ -2184,6 +2204,8 @@ static const char help_eeprom[] =
 "      the contents of a file smaller than the EEPROM capacity.  This is\n"
 "      especially useful when storing plain text to ensure the data is well\n"
 "      null-terminated.\n"
+"    skip=SIZE\n"
+"      Skip SIZE bytes from the EEPROM when either reading or writing.\n"
 "    data_size=SIZE\n"
 "      Size of the data to use.  Use this option when only a part of the\n"
 "      EEPROM should be used, instead of its full capacity.\n";

@@ -88,7 +88,6 @@ static const char *g_opt = NULL;
 /* Top-level */
 static void print_help(const struct command *commands, const char *help_cmd);
 static int run_cmd(struct ctx *ctx, const struct command *commands,
-
                    int argc, char **argv);
 static void sigint_abort(int signum);
 
@@ -148,9 +147,12 @@ static int pbtn_abort_cb(void);
 
 /* EEPROM */
 struct eeprom_opt {
+	unsigned i2c_addr;
 	size_t data_size;
 	size_t skip;
 	int zero_padding;
+	unsigned long block_size;
+	unsigned long page_size;
 };
 static const char help_eeprom[];
 static int run_eeprom(struct ctx *ctx, int argc, char **argv);
@@ -159,7 +161,7 @@ static int pad_eeprom(struct eeprom *eeprom, size_t left,
 		      const struct eeprom_opt *opt);
 static int rw_file_eeprom(struct eeprom *eeprom, int fd, int write_file,
 			  const struct eeprom_opt *opt);
-static int parse_eeprom_opt(struct eeprom *eeprom, struct eeprom_opt *eopt);
+static int parse_eeprom_opt(struct ctx *ctx, struct eeprom_opt *eopt);
 static void log_eeprom_progress(size_t total, size_t rem, const char *msg);
 
 /* Power */
@@ -1374,6 +1376,8 @@ static int run_eeprom(struct ctx *ctx, int argc, char **argv)
 	const char *eeprom_mode;
 	const char *cmd_str;
 	int fd;
+	unsigned i2c_addr;
+	size_t esize;
 	const char *f_name;
 	int write_file;
 	int ret;
@@ -1386,22 +1390,45 @@ static int run_eeprom(struct ctx *ctx, int argc, char **argv)
 	eeprom_mode = argv[0];
 	cmd_str = argv[1];
 
-	if (ctx->eeprom == NULL) {
-		ctx->eeprom = eeprom_init(g_i2c_bus, g_i2c_addr, eeprom_mode);
-	}
+	i2c_addr = g_i2c_addr;
+	eeprom_opt.i2c_addr = PLHW_NO_I2C_ADDR;
+	eeprom_opt.data_size = 0;
+	eeprom_opt.skip = 0;
+	eeprom_opt.zero_padding = 0;
+	eeprom_opt.block_size = 0;
+	eeprom_opt.page_size = 0;
+
+	if (g_opt != NULL)
+		if (parse_eeprom_opt(ctx, &eeprom_opt))
+			return -1;
+
+	if (eeprom_opt.i2c_addr != PLHW_NO_I2C_ADDR)
+		i2c_addr = eeprom_opt.i2c_addr;
+	else
+		i2c_addr = g_i2c_addr;
+
+	if (ctx->eeprom == NULL)
+		ctx->eeprom = eeprom_init(g_i2c_bus, i2c_addr, eeprom_mode);
 
 	if (ctx->eeprom == NULL)
 		return -1;
 
 	eeprom = ctx->eeprom;
 
-	eeprom_opt.data_size = eeprom_get_size(eeprom);
-	eeprom_opt.skip = 0;
-	eeprom_opt.zero_padding = 0;
+	esize = eeprom_get_size(eeprom);
 
-	if (g_opt != NULL)
-		if (parse_eeprom_opt(ctx->eeprom, &eeprom_opt))
-			return -1;
+	if (!eeprom_opt.data_size) {
+		eeprom_opt.data_size = esize;
+	} else if (eeprom_opt.data_size > esize) {
+		LOG("data size bigger than EEPROM size");
+		return -1;
+	}
+
+	if (eeprom_opt.block_size)
+		eeprom_set_block_size(eeprom, eeprom_opt.block_size);
+
+	if (eeprom_opt.page_size)
+		eeprom_set_page_size(eeprom, eeprom_opt.page_size);
 
 	if (!strcmp(cmd_str, "full_rw")) {
 		char c;
@@ -1634,7 +1661,7 @@ static int rw_file_eeprom(struct eeprom *eeprom, int fd, int write_file,
 	return ret;
 }
 
-static int parse_eeprom_opt(struct eeprom *eeprom, struct eeprom_opt *eopt)
+static int parse_eeprom_opt(struct ctx *ctx, struct eeprom_opt *eopt)
 {
 	const size_t opt_size = strlen(g_opt) + 1;
 	static const char *sep = ", ";
@@ -1647,10 +1674,11 @@ static int parse_eeprom_opt(struct eeprom *eeprom, struct eeprom_opt *eopt)
 	memcpy(opt_str, g_opt, opt_size);
 
 	while ((opt = strsep(&opt_str, sep)) != NULL) {
-		static const char *opt_sep="=";
+		static const char *opt_sep = "=";
 		char *key;
 		char *str_value;
 		unsigned long ul_value;
+		int is_int;
 
 		key = strsep(&opt, opt_sep);
 
@@ -1661,67 +1689,38 @@ static int parse_eeprom_opt(struct eeprom *eeprom, struct eeprom_opt *eopt)
 
 		str_value = strsep(&opt, opt_sep);
 
-		if (!strcmp(key, "i2c_block_size")) {
-			if (str_value == NULL) {
-				LOG("no I2C block size specified");
-				ret = -1;
-				goto exit_now;
-			}
-
+		if (str_value) {
 			errno = 0;
 			ul_value = strtoul(str_value, NULL, 10);
+			is_int = errno ? 0 : 1;
+		} else {
+			is_int = 0;
+		}
 
-			if (errno) {
-				LOG("failed to parse I2C block size");
+		if (!strcmp(key, "i2c_block_size")) {
+			if (!is_int) {
+				LOG("no or invalid I2C block size");
 				ret = -1;
 				goto exit_now;
 			}
 
 			LOG("I2C block size: %lu", ul_value);
-			eeprom_set_block_size(eeprom, ul_value);
+			eopt->block_size = ul_value;
 		} else if (!strcmp(key, "page_size")) {
-			if (str_value == NULL) {
-				LOG("no EEPROM page size specified");
-				ret = -1;
-				goto exit_now;
-			}
-
-			errno = 0;
-			ul_value = strtoul(str_value, NULL, 10);
-
-			if (errno) {
-				LOG("failed to parse EEPROM page size");
+			if (!is_int) {
+				LOG("no or invalid EEPROM page size");
 				ret = -1;
 				goto exit_now;
 			}
 
 			LOG("EEPROM page size: %lu", ul_value);
-			eeprom_set_page_size(eeprom, ul_value);
+			eopt->page_size = ul_value;
 		} else if (!strcmp(key, "zero_padding")) {
 			LOG("zero-padding enabled");
 			eopt->zero_padding = 1;
 		} else if (!strcmp(key, "data_size")) {
-			size_t esize;
-
-			if (str_value == NULL) {
-				LOG("no data size specified");
-				ret = -1;
-				goto exit_now;
-			}
-
-			errno = 0;
-			ul_value = strtoul(str_value, NULL, 10);
-
-			if (errno) {
-				LOG("failed to parse data size");
-				ret = -1;
-				goto exit_now;
-			}
-
-			esize = eeprom_get_size(eeprom);
-
-			if (ul_value > esize) {
-				LOG("data size bigger than EEPROM size");
+			if (!is_int) {
+				LOG("no or invalid data size");
 				ret = -1;
 				goto exit_now;
 			}
@@ -1729,23 +1728,31 @@ static int parse_eeprom_opt(struct eeprom *eeprom, struct eeprom_opt *eopt)
 			LOG("data size: %lu", ul_value);
 			eopt->data_size = ul_value;
 		} else if (!strcmp(key, "skip")) {
-			if (str_value == NULL) {
-				LOG("no skip size specified");
-				ret = -1;
-				goto exit_now;
-			}
-
-			errno = 0;
-			ul_value = strtoul(str_value, NULL, 10);
-
-			if (errno) {
-				LOG("failed to parse skip size");
+			if (!is_int) {
+				LOG("no or invalid skip size specified");
 				ret = -1;
 				goto exit_now;
 			}
 
 			LOG("skip: %lu", ul_value);
 			eopt->skip = ul_value;
+		} else if (!strcmp(key, "addr")) {
+			if (str_value == NULL) {
+				LOG("no I2C address configuration specified");
+				ret = -1;
+				goto exit_now;
+			}
+
+			eopt->i2c_addr = plconfig_get_i2c_addr(
+				ctx->config, str_value, PLHW_NO_I2C_ADDR);
+
+			if (eopt->i2c_addr != PLHW_NO_I2C_ADDR) {
+				LOG("I2C address (%s): 0x%02X",
+				    str_value, eopt->i2c_addr);
+			} else {
+				LOG("failed to find I2C address in config: %s",
+				    str_value);
+			}
 		} else {
 			LOG("invalid option name: %s", key);
 			ret = -1;

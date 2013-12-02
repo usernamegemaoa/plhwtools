@@ -2215,7 +2215,12 @@ static const char help_eeprom[] =
 "      Skip SIZE bytes from the EEPROM when either reading or writing.\n"
 "    data_size=SIZE\n"
 "      Size of the data to use.  Use this option when only a part of the\n"
-"      EEPROM should be used, instead of its full capacity.\n";
+"      EEPROM should be used, instead of its full capacity.\n"
+"    addr=CONFIG\n"
+"      Look for the CONFIG option in the plsdk.ini file and use this as the\n"
+"      I2C address to communicate with the EEPROM.  The CONFIG key is used\n"
+"      as-is and there is no naming convention; typical values are\n"
+"      eeprom-i2c-addr-display and eeprom-i2c-addr-vcom.\n";
 
 static const char help_power[] =
 "  Supported arguments:\n"

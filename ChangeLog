@@ -1,3 +1,10 @@
+Release v1.2 -> v1.3 - 2013-12-02
+
+Guillaume Tucker (3):
+      eeprom: add `skip' options + tidy-up LOG messages
+      eeprom: enable EEPROM I2C address from config file
+      eeprom: add addr option to help message
+
 Release v1.1 -> v1.2 - 2013-11-18
 
 Guillaume Tucker (3):

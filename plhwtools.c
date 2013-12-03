@@ -40,7 +40,7 @@
 #include <plsdk/log.h>
 
 static const char APP_NAME[] = "plhwtools";
-static const char VERSION[] = "1.2";
+static const char VERSION[] = "1.3";
 static const char DESCRIPTION[] = "Plastic Logic hardware tools";
 static const char LICENSE[] =
 	"This program is distributed in the hope that it will be useful,\n"

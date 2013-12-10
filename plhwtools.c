@@ -1937,7 +1937,7 @@ static int epdc_get_set_hw_opt(struct ctx *ctx, int argc, char **argv)
 
 	if (argc == 1) {
 		if (plep_get_hw_opt(ctx->plep, opt, &value)) {
-			LOG("Error getting ePDC opt %s!", opt_str);
+			LOG("Error getting ePDC opt %s", opt_str);
 			return -1;
 		}
 
@@ -1946,7 +1946,7 @@ static int epdc_get_set_hw_opt(struct ctx *ctx, int argc, char **argv)
 		value = atoi(argv[1]);
 
 		if (plep_set_hw_opt(ctx->plep, opt, value)) {
-			LOG("Error setting ePDC opt %s!\n", opt_str);
+			LOG("Error setting ePDC opt %s", opt_str);
 			return -1;
 		}
 

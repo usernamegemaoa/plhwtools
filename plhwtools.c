@@ -1617,7 +1617,7 @@ static int rw_file_eeprom(struct eeprom *eeprom, int fd, int write_file,
 	eeprom_seek(eeprom, opt->skip);
 	ret = 0;
 
-	while (left && !ret) {
+	while (left && !ret && !g_abort) {
 		const size_t rwsz =
 			(left > buffer_size) ? buffer_size : left;
 
